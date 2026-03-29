@@ -1,0 +1,1 @@
+for fixed size are and dynamic arrays with smaller types solidity do compact more than one var to a slot
