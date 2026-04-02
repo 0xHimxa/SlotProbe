@@ -5,7 +5,7 @@
  * Provides the core EVM storage reading and decoding capabilities.
  */
 
-export { readSlot, readSlots } from './reader'
+export { readSlot, readSlots } from './reader.js'
 export {
   mappingSlot,
   arrayElementSlot,
@@ -15,14 +15,14 @@ export {
   structMemberSlot,
   structMemberByteOffset,
   type BaseSlot,
-} from './slot-calculator'
+} from './slot-calculator.js'
 export {
   decodeValue,
   decodePackedValue,
   decodePackedAddress,
   getTypeLabel,
   type DecodedValue,
-} from './decoder'
+} from './decoder.js'
 export {
   extractPackedValue,
   extractAllPacked,
@@ -30,4 +30,4 @@ export {
   getByteOffset,
   getTypeBytes,
   type PackedValue,
-} from './packed'
+} from './packed.js'

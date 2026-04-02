@@ -7,17 +7,27 @@
 
 import pLimit from 'p-limit'
 
+export const MIN_BATCH_CONCURRENCY = 50
+
 export interface BatchConfig {
-  /** Maximum concurrent RPC calls (default: 5) */
+  /** Maximum concurrent RPC calls (minimum/default: 50) */
   maxConcurrent: number
+}
+
+function normalizeConcurrency(maxConcurrent: number): number {
+  if (!Number.isFinite(maxConcurrent) || maxConcurrent <= 0) {
+    return MIN_BATCH_CONCURRENCY
+  }
+
+  return Math.max(MIN_BATCH_CONCURRENCY, Math.floor(maxConcurrent))
 }
 
 /**
  * Creates a batched reader that limits concurrent RPC operations.
  * Prevents hitting rate limits on public RPC providers.
  */
-export function createBatcher(config: BatchConfig = { maxConcurrent: 5 }) {
-  const limit = pLimit(config.maxConcurrent)
+export function createBatcher(config: BatchConfig = { maxConcurrent: MIN_BATCH_CONCURRENCY }) {
+  const limit = pLimit(normalizeConcurrency(config.maxConcurrent))
 
   /**
    * Execute multiple tasks with concurrency control.
@@ -32,6 +42,7 @@ export function createBatcher(config: BatchConfig = { maxConcurrent: 5 }) {
 
 /**
  * Default batcher instance with reasonable defaults.
- * 5 concurrent requests works well with most public RPCs.
+ * SlotProbe needs to be able to move through larger storage layouts quickly,
+ * so the default floor is 50 concurrent reads unless the caller requests more.
  */
-export const defaultBatcher = createBatcher({ maxConcurrent: 5 })
+export const defaultBatcher = createBatcher({ maxConcurrent: MIN_BATCH_CONCURRENCY })

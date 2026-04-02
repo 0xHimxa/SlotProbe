@@ -6,8 +6,9 @@
  */
 
 import { getClient, type SupportedChain } from '../../rpc/index.js'
-import { readSlot } from '../storage-engine/reader.js'
+import { readSlots } from '../storage-engine/reader.js'
 import { decodeValue } from '../storage-engine/decoder.js'
+import { extractPackedValue } from '../storage-engine/packed.js'
 import { parseArtifact } from '../artifact-parser/normalizer.js'
 import { applyOnlyFilter } from './filter.js'
 import { saveSnapshot } from './store.js'
@@ -44,7 +45,7 @@ export interface CaptureResult {
 export function dryRunCapture(options: CaptureOptions): CaptureResult {
   const layout = applyOnlyFilter(parseArtifact(options.artifactPath), options.only)
   const variableCount = layout.variables.length
-  const rpcCallsEstimate = variableCount
+  const rpcCallsEstimate = new Set(layout.variables.map((variable) => variable.slot.toString())).size
 
   console.log(`Would capture ${variableCount} variables`)
   console.log(`Estimated RPC calls: ${rpcCallsEstimate}`)
@@ -73,16 +74,25 @@ export async function captureSnapshot(options: CaptureOptions): Promise<Snapshot
   }
 
   const entries: SnapshotEntry[] = []
+  const slotReads = await readSlots(
+    options.address,
+    layout.variables.map((variable) => variable.slot),
+    options.chain,
+    blockNum,
+    options.rpcUrl,
+    50
+  )
 
   for (const variable of layout.variables) {
-    const rawValue = await readSlot(
-      options.address,
-      variable.slot,
-      options.chain,
-      blockNum,
-      options.rpcUrl
-    )
-    
+    const slotValue = slotReads.get(variable.slot)
+
+    if (!slotValue) {
+      throw new Error(`Missing slot read for ${variable.name} at slot ${variable.slot}`)
+    }
+
+    const rawValue = shouldExtractPackedValue(variable)
+      ? extractPackedValue(slotValue, variable.offset, variable.numberOfBytes)
+      : slotValue
     const decodedValue = decodeValue(rawValue, variable.type)
     
     entries.push({
@@ -110,4 +120,16 @@ export async function captureSnapshot(options: CaptureOptions): Promise<Snapshot
   }
 
   return snapshot
+}
+
+function shouldExtractPackedValue(variable: {
+  type: string
+  offset: number
+  numberOfBytes: number
+}): boolean {
+  if (variable.numberOfBytes >= 32) {
+    return false
+  }
+
+  return /^(t_)?(u?int\d+|address(_payable)?|bool|bytes\d+)$/.test(variable.type)
 }

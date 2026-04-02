@@ -5,9 +5,9 @@
  * Provides normalized output regardless of source framework.
  */
 
-export { parseFoundryArtifact } from './foundry'
-export { parseHardhatArtifact } from './hardhat'
-export { parseArtifact, detectFormat, validateArtifact } from './normalizer'
+export { parseFoundryArtifact } from './foundry.js'
+export { parseHardhatArtifact } from './hardhat.js'
+export { parseArtifact, detectFormat, validateArtifact } from './normalizer.js'
 export {
   type StorageLayout,
   type StorageVariable,
@@ -15,4 +15,4 @@ export {
   StorageLayoutSchema,
   StorageVariableSchema,
   TypeInfoSchema,
-} from './types'
+} from './types.js'

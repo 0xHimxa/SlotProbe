@@ -6,12 +6,14 @@
  * Supports mainnet, arbitrum, base, optimism, and polygon out of the box.
  */
 
-import { createPublicClient, http, type PublicClient, type Chain } from 'viem'
+import { createPublicClient, http, type Chain } from 'viem'
 import { mainnet, arbitrum, base, optimism, polygon } from 'viem/chains'
 
 /** Supported chains for snapshot operations */
 const CHAINS = { mainnet, arbitrum, base, optimism, polygon } as const
 export type SupportedChain = keyof typeof CHAINS
+const DEFAULT_MULTICALL_BATCH_SIZE = 4096
+const DEFAULT_MULTICALL_WAIT_MS = 16
 
 /** Chain configuration map - add custom chains here */
 export const CHAIN_CONFIG: Record<SupportedChain, Chain> = CHAINS
@@ -20,12 +22,18 @@ export const CHAIN_CONFIG: Record<SupportedChain, Chain> = CHAINS
  * Creates a viem public client for the specified chain.
  * Falls back to the chain's default public RPC if no custom RPC URL provided.
  */
-export function getClient(chain: SupportedChain, rpcUrl?: string): PublicClient {
+export function getClient(chain: SupportedChain, rpcUrl?: string) {
   const chainConfig = CHAINS[chain]
   const transport = http(rpcUrl ?? chainConfig.rpcUrls.default.http[0])
   
   return createPublicClient({
     chain: chainConfig,
+    batch: {
+      multicall: {
+        batchSize: DEFAULT_MULTICALL_BATCH_SIZE,
+        wait: DEFAULT_MULTICALL_WAIT_MS,
+      },
+    },
     transport,
   })
 }

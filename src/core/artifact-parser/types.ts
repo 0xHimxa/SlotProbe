@@ -52,7 +52,7 @@ export const StorageLayoutSchema = z.object({
   /** All storage variables */
   variables: z.array(StorageVariableSchema),
   /** Type definitions */
-  types: z.record(TypeInfoSchema),
+  types: z.record(z.string(), TypeInfoSchema),
 })
 
 export type StorageLayout = z.infer<typeof StorageLayoutSchema>

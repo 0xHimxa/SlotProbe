@@ -7,8 +7,8 @@
  * This is the foundation of SlotProbe - everything else builds on this.
  */
 
-import { getClient, type SupportedChain, withRetry } from '../../rpc'
-import { isRetryableError } from '../../rpc/retry'
+import { createBatcher, getClient, type SupportedChain, withRetry } from '../../rpc/index.js'
+import { isRetryableError } from '../../rpc/retry.js'
 
 /**
  * Reads a single storage slot from a contract.
@@ -70,21 +70,22 @@ export async function readSlots(
   chain: SupportedChain,
   blockNumber?: bigint,
   rpcUrl?: string,
-  concurrency: number = 5
+  concurrency: number = 50
 ): Promise<Map<bigint, `0x${string}`>> {
   const results = new Map<bigint, `0x${string}`>()
-  
-  const batchSize = Math.ceil(slots.length / concurrency)
-  for (let i = 0; i < slots.length; i += batchSize) {
-    const batch = slots.slice(i, i + batchSize)
-    const promises = batch.map(async (slot) => {
+
+  const uniqueSlots = [...new Set(slots.map((slot) => slot.toString()))].map((slot) => BigInt(slot))
+  const batchRead = createBatcher({ maxConcurrent: concurrency })
+  const resolved = await batchRead(
+    uniqueSlots.map((slot) => async () => {
       const value = await readSlot(address, slot, chain, blockNumber, rpcUrl)
       return { slot, value }
     })
-    
-    const resolved = await Promise.all(promises)
-    resolved.forEach(({ slot, value }) => results.set(slot, value))
-  }
+  )
+
+  resolved.forEach(({ slot, value }: { slot: bigint; value: `0x${string}` }) => {
+    results.set(slot, value)
+  })
   
   return results
 }

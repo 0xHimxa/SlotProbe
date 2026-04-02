@@ -25,16 +25,16 @@ export function withRetry<T>(
   config: RetryConfig = { retries: 3, backoffMs: 1000 }
 ): Promise<T> {
   return pRetry(fn, {
+    factor: 2,
+    minTimeout: config.backoffMs,
+    maxTimeout: config.maxBackoffMs ?? 10000,
+    randomize: true,
     retries: config.retries,
+    shouldRetry: ({ error }) => isRetryableError(error),
     onFailedAttempt: (error) => {
-      const attempt = error.attemptNumber
-      const backoff = Math.min(
-        config.backoffMs * Math.pow(2, attempt - 1),
-        config.maxBackoffMs ?? 10000
-      )
       const errorMessage = error.error instanceof Error ? error.error.message : String(error.error)
       console.warn(
-        `RPC call failed (attempt ${attempt}/${config.retries + 1}): ${errorMessage}. Retrying in ${backoff}ms...`
+        `RPC call failed (attempt ${error.attemptNumber}/${config.retries + 1}): ${errorMessage}. Retries left: ${error.retriesLeft}.`
       )
     },
   })
@@ -52,8 +52,14 @@ export function isRetryableError(error: unknown): boolean {
       message.includes('rate limit') ||
       message.includes('503') ||
       message.includes('500') ||
+      message.includes('502') ||
+      message.includes('504') ||
       message.includes('timeout') ||
-      message.includes('network error')
+      message.includes('network error') ||
+      message.includes('socket hang up') ||
+      message.includes('econnreset') ||
+      message.includes('etimedout') ||
+      message.includes('temporarily unavailable')
     )
   }
   return false

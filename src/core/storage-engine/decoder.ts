@@ -78,45 +78,47 @@ export function decodeValue(rawHex: string, solidityType: string): DecodedValue 
     return `0x${padded.slice(-40)}`
   }
 
-  if (label === 'bytes32') {
-    return `0x${padded}`
+  if (/^bytes\d+$/.test(label)) {
+    const size = parseInt(label.replace('bytes', ''))
+    const start = 64 - size * 2
+    return `0x${padded.slice(start)}`
   }
 
   if (label === 'bytes' || label === 'string') {
-    return decodeBytes(value, padded)
+    return decodeBytesOrString(padded, label)
   }
 
   return `0x${padded}`
 }
 
 /**
- * Decodes bytes/string from a length-prefixed storage slot.
- * First slot contains length, actual data starts at keccak256(slot).
+ * Decodes Solidity short-form bytes/string values from an inline storage slot.
+ * Long values return a placeholder because their payload lives at keccak256(slot).
  */
-function decodeBytes(value: bigint, padded: string): string {
-  const length = Number(value)
-  
-  if (length === 0) return ''
-  
-  if (length <= 31) {
-    const hexStart = 64 - length * 2
-    return hexToString(padded.slice(hexStart))
+function decodeBytesOrString(padded: string, label: 'bytes' | 'string'): string {
+  const marker = parseInt(padded.slice(-2), 16)
+  const isShort = marker % 2 === 0
+
+  if (!isShort) {
+    const length = (BigInt(`0x${padded}`) - 1n) / 2n
+    return `${label}:${length.toString()} (stored at keccak256(slot))`
   }
-  
-  return `bytes:${length} (see bytes slot)`
+
+  const length = marker / 2
+  if (length === 0) {
+    return label === 'string' ? '' : '0x'
+  }
+
+  const inlineHex = padded.slice(0, length * 2)
+  return label === 'string' ? hexToUtf8(inlineHex) : `0x${inlineHex}`
 }
 
 /**
- * Converts hex to readable string, stopping at null terminator.
+ * Converts hex to UTF-8 string, trimming trailing zero bytes first.
  */
-function hexToString(hex: string): string {
-  let str = ''
-  for (let i = 0; i < hex.length; i += 2) {
-    const charCode = parseInt(hex.slice(i, i + 2), 16)
-    if (charCode === 0) break
-    str += String.fromCharCode(charCode)
-  }
-  return str
+function hexToUtf8(hex: string): string {
+  const trimmed = hex.replace(/(00)+$/, '')
+  return Buffer.from(trimmed, 'hex').toString('utf8')
 }
 
 /**

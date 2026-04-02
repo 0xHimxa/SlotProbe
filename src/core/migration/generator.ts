@@ -7,7 +7,7 @@
 
 import Handlebars from 'handlebars'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { join } from 'node:path'
 import type { DiffEntry } from '../diff/types.js'
 
 export type MigrationFormat = 'foundry' | 'hardhat'
@@ -102,16 +102,19 @@ contract Migrate{{contractName}} is Script {
   }
 
   return `// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+import { ethers } from "hardhat";
 
-const address CONTRACT = '{{address}}';
+const CONTRACT = "{{address}}";
 
-async function run() {
+async function main() {
   {{#each changes}}
   // {{name}}: {{before}} -> {{after}}
   // TODO: Add setter call for {{name}}
   {{/each}}
 }
 
-module.exports = run;`
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});`
 }

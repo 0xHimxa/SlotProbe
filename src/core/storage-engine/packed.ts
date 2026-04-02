@@ -32,6 +32,18 @@ export function extractPackedValue(
   byteOffset: number,
   numBytes: number
 ): `0x${string}` {
+  if (byteOffset < 0 || byteOffset > 31) {
+    throw new Error(`Packed byte offset must be between 0 and 31, received ${byteOffset}`)
+  }
+  if (numBytes <= 0 || numBytes > 32) {
+    throw new Error(`Packed byte size must be between 1 and 32, received ${numBytes}`)
+  }
+  if (byteOffset + numBytes > 32) {
+    throw new Error(
+      `Packed value exceeds slot boundary: offset ${byteOffset} + size ${numBytes} > 32`
+    )
+  }
+
   const hex = rawSlot.replace('0x', '').padStart(64, '0')
   
   const startByte = 32 - byteOffset - numBytes
@@ -83,7 +95,10 @@ export function getTypeBytes(type: string): number {
   }
   if (type === 'address') return 20
   if (type === 'bool') return 1
-  if (type.startsWith('bytes')) {
+  if (type === 'bytes' || type === 'string') {
+    return 32
+  }
+  if (/^bytes\d+$/.test(type)) {
     const size = parseInt(type.replace('bytes', ''))
     return size || 32
   }
