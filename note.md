@@ -25,4 +25,6 @@ dynamic string
 
 
 
---rpc-url https://base-sepolia.g.alchemy.com/v2/KJ1Tuwa06gu31_-ICeiaV 
+
+
+in my current packed.ts thir is an edge case if bytes is been passed in
