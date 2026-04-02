@@ -4,7 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "repository": {
     "type": "git",
@@ -20,6 +22,7 @@
   "homepage": "https://github.com/0xHimxa/SlotProbe#readme",
   "devDependencies": {
     "@types/node": "^25.5.0",
+    "@vitest/coverage-v8": "^4.1.2",
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
