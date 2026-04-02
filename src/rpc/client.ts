@@ -12,8 +12,8 @@ import { mainnet, arbitrum, base, optimism, polygon } from 'viem/chains'
 /** Supported chains for snapshot operations */
 const CHAINS = { mainnet, arbitrum, base, optimism, polygon } as const
 export type SupportedChain = keyof typeof CHAINS
-const DEFAULT_MULTICALL_BATCH_SIZE = 4096
-const DEFAULT_MULTICALL_WAIT_MS = 16
+const DEFAULT_MULTICALL_BATCH_SIZE = 400
+const DEFAULT_MULTICALL_WAIT_MS = 1000
 
 /** Chain configuration map - add custom chains here */
 export const CHAIN_CONFIG: Record<SupportedChain, Chain> = CHAINS
