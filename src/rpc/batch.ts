@@ -8,6 +8,7 @@
 import pLimit from 'p-limit'
 
 export const MIN_BATCH_CONCURRENCY = 50
+export const MAX_BATCH_CONCURRENCY = 400
 
 export interface BatchConfig {
   /** Maximum concurrent RPC calls (minimum/default: 50) */
@@ -15,13 +16,19 @@ export interface BatchConfig {
 }
 
 function normalizeConcurrency(maxConcurrent: number): number {
+  // 1. Handle non-numbers or invalid input
   if (!Number.isFinite(maxConcurrent) || maxConcurrent <= 0) {
     return MIN_BATCH_CONCURRENCY
   }
 
-  return Math.max(MIN_BATCH_CONCURRENCY, Math.floor(maxConcurrent))
+  // 2. Clamp the value between MIN and MAX
+  // Math.max ensures it's at least 50
+  // Math.min ensures it's at most 400
+  return Math.min(
+    MAX_BATCH_CONCURRENCY, 
+    Math.max(MIN_BATCH_CONCURRENCY, Math.floor(maxConcurrent))
+  )
 }
-
 /**
  * Creates a batched reader that limits concurrent RPC operations.
  * Prevents hitting rate limits on public RPC providers.
