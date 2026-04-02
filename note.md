@@ -24,6 +24,12 @@ dynamic string
   New: fee   (uint256)
 
 
+fix bytes and string reading comverting right
+array of struct  basic and packed support 
+mapping of struct  basic truct support support
+
+re-checked the way decode negative  packed signed slot
+
 
 
 
