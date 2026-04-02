@@ -1,4 +1,4 @@
-for fixed size are and dynamic arrays with smaller types solidity do compact more than one var to a slot
+
 
  when to packed item to slot: 
 if items are not updated same times is better to assign them seperately it will be chapper that way than updating on and leave the other it will be computational expensive because evm have to read, distructure, write(check prob might be better to use assembly yul when trying to  assign both)
@@ -8,9 +8,6 @@ if items are not updated same times is better to assign them seperately it will 
 
 $$\text{Slot} = \text{keccak256}(\text{ArraySlot}) + \left( \frac{i \times \text{sizeOf(Type)}}{256} \right)$$
 
-
-
-note am gonna avoid dynamic array of dynamic array as part of calculation, it kinda expensive and not advaceable jumping  twice 
 
 
 
@@ -23,14 +20,3 @@ dynamic string
   Old: owner (address)
   New: fee   (uint256)
 
-
-fix bytes and string reading comverting right
-array of struct  basic and packed support 
-mapping of struct  basic truct support support
-
-re-checked the way decode negative  packed signed slot
-
-
-
-
-in my current packed.ts thir is an edge case if bytes is been passed in

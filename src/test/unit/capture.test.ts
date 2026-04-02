@@ -144,8 +144,8 @@ describe('captureSnapshot', () => {
 
     const longTitle = 'this string is definitely longer than 31'
     const longTitleHex = Buffer.from(longTitle, 'utf8').toString('hex')
-    const firstTitleChunk = `0x${longTitleHex.slice(0, 64).padEnd(64, '0')}`
-    const secondTitleChunk = `0x${longTitleHex.slice(64).padEnd(64, '0')}`
+    const firstTitleChunk = asSlotHex(`0x${longTitleHex.slice(0, 64).padEnd(64, '0')}`)
+    const secondTitleChunk = asSlotHex(`0x${longTitleHex.slice(64).padEnd(64, '0')}`)
 
     const slots = new Map<bigint, `0x${string}`>([
       [usersSlot, encodeUint(7n)],
@@ -159,7 +159,7 @@ describe('captureSnapshot', () => {
       [titleDataSlot, firstTitleChunk],
       [titleDataSlot + 1n, secondTitleChunk],
       [3n, encodeShortBytes('112233')],
-      [4n, '0x0000000000000000000000000000000000000000000000000000001234567800'],
+      [4n, asSlotHex('0x0000000000000000000000000000000000000000000000000000001234567800')],
     ])
 
     mockParseArtifact.mockReturnValue(layout)
@@ -206,4 +206,8 @@ function encodeDynamicLength(length: bigint): `0x${string}` {
 function encodeShortBytes(hex: string): `0x${string}` {
   const marker = (hex.length / 2) * 2
   return `0x${hex.padEnd(62, '0')}${marker.toString(16).padStart(2, '0')}`
+}
+
+function asSlotHex(value: string): `0x${string}` {
+  return value as `0x${string}`
 }
