@@ -1,3 +1,18 @@
+/**
+ * Batch Processing Module Test Suite
+ * 
+ * This test suite validates the batch processing functionality, which enables
+ * concurrent execution of multiple async tasks with configurable concurrency limits.
+ * Batching is essential for optimizing RPC calls and improving throughput when
+ * processing multiple blockchain operations.
+ * 
+ * The batch module provides:
+ * 1. Configurable concurrency control to prevent overwhelming RPC endpoints
+ * 2. Automatic normalization of invalid concurrency values
+ * 3. Support for various return types while preserving type safety
+ * 4. A default batcher instance for common use cases
+ */
+
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createBatcher, defaultBatcher, MIN_BATCH_CONCURRENCY, type BatchConfig } from '../../rpc/batch.js'
 
@@ -10,6 +25,19 @@ describe('batch', () => {
     })
   })
 
+  /**
+   * Batcher Factory Tests
+   * 
+   * Validates the createBatcher factory function which creates configurable batch
+   * processors. Each batcher manages concurrent execution of tasks while respecting
+   * the specified concurrency limits.
+   * 
+   * Test coverage includes:
+   * - Basic batch execution and result aggregation
+   * - Empty task array handling
+   * - Concurrent task execution with varying delays
+   * - Concurrency limit validation and normalization
+   */
   describe('createBatcher', () => {
     it('should create a batcher function', () => {
       const batcher = createBatcher()
@@ -65,6 +93,18 @@ describe('batch', () => {
     })
   })
 
+  /**
+   * Default Batcher Instance Tests
+   * 
+   * Validates the pre-configured defaultBatcher instance that provides batch
+   * processing with sensible defaults. This allows consumers to use batch
+   * functionality without manual configuration.
+   * 
+   * Test coverage includes:
+   * - Instance type verification
+   * - Basic task execution
+   * - Error propagation from failed tasks
+   */
   describe('defaultBatcher', () => {
     it('should be a batcher function', () => {
       expect(typeof defaultBatcher).toBe('function')
@@ -84,6 +124,13 @@ describe('batch', () => {
     })
   })
 
+  /**
+   * Type Safety Tests
+   * 
+   * Validates that the batcher maintains TypeScript type safety throughout the
+   * batch execution pipeline. This ensures that custom types and interfaces
+   * are properly preserved when tasks are executed in batches.
+   */
   describe('batchRead', () => {
     it('should preserve task result types', async () => {
       const batcher = createBatcher()

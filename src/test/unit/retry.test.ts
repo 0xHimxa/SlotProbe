@@ -1,7 +1,37 @@
+/**
+ * Retry Module Test Suite
+ * 
+ * This test suite validates the retry mechanism functionality, which is responsible for
+ * automatically retrying failed RPC requests based on configurable policies. The retry
+ * logic is critical for handling transient network failures and rate limiting in
+ * blockchain RPC interactions.
+ * 
+ * The retry module provides two main functionalities:
+ * 1. Error classification: Determines whether an error is transient (retryable) or permanent
+ * 2. Retry execution: Wraps async functions with automatic retry logic and exponential backoff
+ */
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { withRetry, isRetryableError, type RetryConfig } from '../../rpc/retry.js'
 
 describe('retry', () => {
+  /**
+   * Error Classification Tests
+   * 
+   * Validates the isRetryableError function which classifies errors based on their type
+   * and message content. This classification determines whether a failed RPC request
+   * should be retried or propagated as a terminal failure.
+   * 
+   * Retryable errors include:
+   * - HTTP 429 (Too Many Requests): Rate limiting by RPC providers
+   * - HTTP 5xx errors: Server-side issues that may resolve on retry
+   * - Network-level errors: Connection issues that may be transient
+   * - Timeout errors: Requests that exceeded the timeout threshold
+   * 
+   * Non-retryable errors include:
+   * - HTTP 4xx errors (except 429): Client errors indicating malformed requests
+   * - Non-Error values: Invalid error objects
+   */
   describe('isRetryableError', () => {
     it('should return true for 429 rate limit error', () => {
       expect(isRetryableError(new Error('429 Too Many Requests'))).toBe(true)
@@ -68,6 +98,24 @@ describe('retry', () => {
     })
   })
 
+
+  
+
+  /**
+   * Retry Execution Tests
+   * 
+   * Validates the withRetry function which wraps async operations with automatic retry
+   * capability. The function implements exponential backoff to avoid overwhelming
+   * RPC providers during high-failure scenarios.
+   * 
+   * Key behaviors tested:
+   * - Successful first-attempt execution without unnecessary retries
+   * - Automatic retry on retryable errors until success or exhaustion
+   * - Immediate failure propagation for non-retryable errors
+   * - Proper handling of various return value types (primitives, objects, null)
+   * - Warning log emission for failed retry attempts
+   * - Configuration options for retry count and backoff timing
+   */
   describe('withRetry', () => {
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 

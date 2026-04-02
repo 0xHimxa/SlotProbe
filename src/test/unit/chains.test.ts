@@ -1,7 +1,37 @@
+/**
+ * Blockchain Chains Configuration Test Suite
+ * 
+ * This test suite validates the chain configuration module which defines supported
+ * blockchain networks and provides utilities for chain identification. The module
+ * maintains metadata for multiple EVM-compatible chains including Ethereum mainnet,
+ * Layer 2 networks, and their corresponding testnets.
+ * 
+ * Supported chains include:
+ * - Ethereum Mainnet (Layer 1)
+ * - Arbitrum One (Layer 2)
+ * - Optimism (Layer 2)
+ * - Polygon (Layer 2)
+ * - Base (Layer 2)
+ * - Testnets: Sepolia, Arbitrum Sepolia, Optimism Sepolia
+ */
+
 import { describe, it, expect } from 'vitest'
 import { CHAINS, getChainInfo } from '../../rpc/chains.js'
 
 describe('chains', () => {
+  /**
+   * Chain Configuration Constant Tests
+   * 
+   * Validates the CHAINS constant which provides a comprehensive registry of
+   * supported blockchain networks. Each chain entry includes essential metadata
+   * such as chain ID, display name, and block explorer URL.
+   * 
+   * Test coverage includes:
+   * - Chain metadata accuracy (name, ID, explorer URL)
+   * - Complete list of supported chains
+   * - Testnet classification correctness
+   * - Chain ID assignments for all networks
+   */
   describe('CHAINS', () => {
     it('should have mainnet with correct properties', () => {
       expect(CHAINS['mainnet']).toEqual({
@@ -42,6 +72,18 @@ describe('chains', () => {
     })
   })
 
+  /**
+   * Chain Lookup Utility Tests
+   * 
+   * Validates the getChainInfo function which provides runtime chain identification
+   * based on chain ID. This utility enables dynamic chain detection and validation
+   * when working with chain-specific RPC endpoints or block data.
+   * 
+   * Test coverage includes:
+   * - Successful chain lookup by standard chain IDs
+   * - Undefined response for unsupported chain IDs
+   * - Correct metadata retrieval for known chains
+   */
   describe('getChainInfo', () => {
     it('should return chain info for valid chain ID', () => {
       const chainInfo = getChainInfo(1)
