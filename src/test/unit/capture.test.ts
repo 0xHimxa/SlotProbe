@@ -1,0 +1,209 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { bytesSlot, mappingSlot } from '../../core/storage-engine/slot-calculator.js'
+import type { StorageLayout } from '../../core/artifact-parser/types.js'
+
+const { mockReadSlot, mockGetBlock, mockParseArtifact } = vi.hoisted(() => ({
+  mockReadSlot: vi.fn(),
+  mockGetBlock: vi.fn(),
+  mockParseArtifact: vi.fn(),
+}))
+
+vi.mock('../../core/storage-engine/reader.js', () => ({
+  readSlot: mockReadSlot,
+}))
+
+vi.mock('../../rpc/index.js', () => ({
+  getClient: vi.fn(() => ({
+    getBlock: mockGetBlock,
+  })),
+}))
+
+vi.mock('../../core/artifact-parser/normalizer.js', () => ({
+  parseArtifact: mockParseArtifact,
+}))
+
+import { captureSnapshot } from '../../core/snapshot/capture.js'
+
+describe('captureSnapshot', () => {
+  beforeEach(() => {
+    mockReadSlot.mockReset()
+    mockGetBlock.mockReset()
+    mockParseArtifact.mockReset()
+    mockGetBlock.mockResolvedValue({ number: 123n })
+  })
+
+  it('expands mapping structs, arrays of structs, and dynamic bytes/string values', async () => {
+    const key = '0x00000000000000000000000000000000000000aa' as const
+    const usersSlot = mappingSlot(key, 0n)
+    const membersDataSlot = bytesSlot(1n)
+    const titleDataSlot = bytesSlot(2n)
+
+    const layout: StorageLayout = {
+      contractName: 'StorageHarness',
+      variables: [
+        {
+          name: 'users',
+          type: 't_mapping_users',
+          label: 'mapping(address => struct User)',
+          slot: 0n,
+          offset: 0,
+          numberOfBytes: 32,
+        },
+        {
+          name: 'members',
+          type: 't_array_users',
+          label: 'struct User[]',
+          slot: 1n,
+          offset: 0,
+          numberOfBytes: 32,
+        },
+        {
+          name: 'title',
+          type: 't_string_storage',
+          label: 'string',
+          slot: 2n,
+          offset: 0,
+          numberOfBytes: 32,
+        },
+        {
+          name: 'blob',
+          type: 't_bytes_storage',
+          label: 'bytes',
+          slot: 3n,
+          offset: 0,
+          numberOfBytes: 32,
+        },
+        {
+          name: 'selector',
+          type: 't_bytes4',
+          label: 'bytes4',
+          slot: 4n,
+          offset: 1,
+          numberOfBytes: 4,
+        },
+      ],
+      types: {
+        t_uint256: {
+          encoding: 'inplace',
+          numberOfBytes: 32,
+          label: 'uint256',
+        },
+        t_struct_user: {
+          encoding: 'inplace',
+          numberOfBytes: 64,
+          label: 'struct User',
+          members: [
+            {
+              name: 'balance',
+              type: 't_uint256',
+              label: 'uint256',
+              slot: 0n,
+              offset: 0,
+              numberOfBytes: 32,
+            },
+            {
+              name: 'nonce',
+              type: 't_uint256',
+              label: 'uint256',
+              slot: 1n,
+              offset: 0,
+              numberOfBytes: 32,
+            },
+          ],
+        },
+        t_mapping_users: {
+          encoding: 'mapping',
+          numberOfBytes: 32,
+          label: 'mapping(address => struct User)',
+          key: 't_address',
+          value: 't_struct_user',
+        },
+        t_array_users: {
+          encoding: 'dynamic_array',
+          numberOfBytes: 32,
+          label: 'struct User[]',
+          base: 't_struct_user',
+        },
+        t_string_storage: {
+          encoding: 'bytes',
+          numberOfBytes: 32,
+          label: 'string',
+        },
+        t_bytes_storage: {
+          encoding: 'bytes',
+          numberOfBytes: 32,
+          label: 'bytes',
+        },
+        t_bytes4: {
+          encoding: 'inplace',
+          numberOfBytes: 4,
+          label: 'bytes4',
+        },
+      },
+    }
+
+    const longTitle = 'this string is definitely longer than 31'
+    const longTitleHex = Buffer.from(longTitle, 'utf8').toString('hex')
+    const firstTitleChunk = `0x${longTitleHex.slice(0, 64).padEnd(64, '0')}`
+    const secondTitleChunk = `0x${longTitleHex.slice(64).padEnd(64, '0')}`
+
+    const slots = new Map<bigint, `0x${string}`>([
+      [usersSlot, encodeUint(7n)],
+      [usersSlot + 1n, encodeUint(9n)],
+      [1n, encodeUint(2n)],
+      [membersDataSlot, encodeUint(11n)],
+      [membersDataSlot + 1n, encodeUint(12n)],
+      [membersDataSlot + 2n, encodeUint(21n)],
+      [membersDataSlot + 3n, encodeUint(22n)],
+      [2n, encodeDynamicLength(BigInt(Buffer.from(longTitle, 'utf8').length))],
+      [titleDataSlot, firstTitleChunk],
+      [titleDataSlot + 1n, secondTitleChunk],
+      [3n, encodeShortBytes('112233')],
+      [4n, '0x0000000000000000000000000000000000000000000000000000001234567800'],
+    ])
+
+    mockParseArtifact.mockReturnValue(layout)
+    mockReadSlot.mockImplementation(async (_address: string, slot: bigint) => {
+      const value = slots.get(slot)
+      if (!value) {
+        throw new Error(`unexpected slot read: ${slot.toString()}`)
+      }
+      return value
+    })
+
+    const snapshot = await captureSnapshot({
+      address: '0x0000000000000000000000000000000000000001',
+      artifactPath: './artifact.json',
+      chain: 'mainnet',
+      mappingKeys: {
+        users: [key],
+      },
+    })
+
+    expect(findEntry(snapshot, `users[${key}].balance`)?.decodedValue).toBe('7')
+    expect(findEntry(snapshot, `users[${key}].nonce`)?.decodedValue).toBe('9')
+    expect(findEntry(snapshot, 'members.length')?.decodedValue).toBe('2')
+    expect(findEntry(snapshot, 'members[0].balance')?.decodedValue).toBe('11')
+    expect(findEntry(snapshot, 'members[1].nonce')?.decodedValue).toBe('22')
+    expect(findEntry(snapshot, 'title')?.decodedValue).toBe(longTitle)
+    expect(findEntry(snapshot, 'blob')?.decodedValue).toBe('0x112233')
+    expect(findEntry(snapshot, 'selector')?.decodedValue).toBe('0x12345678')
+  })
+})
+
+function findEntry(snapshot: Awaited<ReturnType<typeof captureSnapshot>>, name: string) {
+  return snapshot.variables.find((entry) => entry.name === name)
+}
+
+function encodeUint(value: bigint): `0x${string}` {
+  return `0x${value.toString(16).padStart(64, '0')}`
+}
+
+function encodeDynamicLength(length: bigint): `0x${string}` {
+  return encodeUint(length * 2n + 1n)
+}
+
+function encodeShortBytes(hex: string): `0x${string}` {
+  const marker = (hex.length / 2) * 2
+  return `0x${hex.padEnd(62, '0')}${marker.toString(16).padStart(2, '0')}`
+}

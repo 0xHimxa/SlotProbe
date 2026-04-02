@@ -8,7 +8,7 @@
  * (bigint doesn't serialize cleanly to JSON).
  */
 
-export type DecodedValue = string | boolean | DecodedValue[]
+export type DecodedValue = string | boolean | DecodedValue[] | { [key: string]: DecodedValue }
 
 const TYPE_LABELS: Record<string, string> = {
   // Unsigned Integers
@@ -53,25 +53,22 @@ const TYPE_LABELS: Record<string, string> = {
  * @returns Decoded value as appropriate JS type
  */
 export function decodeValue(rawHex: string, solidityType: string): DecodedValue {
-  const padded = rawHex.replace('0x', '').padStart(64, '0')
+  const padded = normalizeSlotHex(rawHex)
   const value = BigInt(`0x${padded}`)
-  const label = TYPE_LABELS[solidityType] ?? solidityType
+  const label = normalizeTypeLabel(solidityType)
 
   if (label === 'bool') {
     return value !== 0n
   }
 
-  if (label.startsWith('uint')) {
-    return value.toString()
+  if (isUnsignedIntegerType(label)) {
+    const bits = getIntegerBitWidth(label, 'uint')
+    return maskToBitWidth(value, bits).toString()
   }
 
-  if (label.startsWith('int')) {
-    const bits = parseInt(label.replace('int', '')) || 256
-    const threshold = 2n ** BigInt(bits - 1)
-    if (value >= threshold) {
-      return (value - 2n ** BigInt(bits)).toString()
-    }
-    return value.toString()
+  if (isSignedIntegerType(label)) {
+    const bits = getIntegerBitWidth(label, 'int')
+    return decodeSignedInteger(value, bits)
   }
 
   if (label === 'address') {
@@ -80,8 +77,7 @@ export function decodeValue(rawHex: string, solidityType: string): DecodedValue 
 
   if (/^bytes\d+$/.test(label)) {
     const size = parseInt(label.replace('bytes', ''))
-    const start = 64 - size * 2
-    return `0x${padded.slice(start)}`
+    return `0x${padded.slice(0, size * 2)}`
   }
 
   if (label === 'bytes' || label === 'string') {
@@ -89,6 +85,89 @@ export function decodeValue(rawHex: string, solidityType: string): DecodedValue 
   }
 
   return `0x${padded}`
+}
+
+/**
+ * Normalizes any raw storage hex into a single 32-byte slot view.
+ * Oversized inputs are truncated from the left so integer decoding uses the active slot bytes.
+ */
+function normalizeSlotHex(rawHex: string): string {
+  return rawHex.replace('0x', '').slice(-64).padStart(64, '0')
+}
+
+/**
+ * Converts compiler internal type ids such as t_uint24 into plain Solidity labels.
+ * This keeps decoding generic instead of relying only on a small hard-coded width list.
+ */
+function normalizeTypeLabel(solidityType: string): string {
+  if (TYPE_LABELS[solidityType]) {
+    return TYPE_LABELS[solidityType]
+  }
+
+  const uintMatch = solidityType.match(/^t_uint(\d+)?$/)
+  if (uintMatch) {
+    return `uint${uintMatch[1] ?? '256'}`
+  }
+
+  const intMatch = solidityType.match(/^t_int(\d+)?$/)
+  if (intMatch) {
+    return `int${intMatch[1] ?? '256'}`
+  }
+
+  const bytesMatch = solidityType.match(/^t_bytes(\d+)?$/)
+  if (bytesMatch) {
+    return bytesMatch[1] ? `bytes${bytesMatch[1]}` : 'bytes'
+  }
+
+  return solidityType
+}
+
+/**
+ * Detects unsigned integer labels including uncommon widths such as uint24.
+ */
+function isUnsignedIntegerType(label: string): boolean {
+  return /^uint(\d+)?$/.test(label)
+}
+
+/**
+ * Detects signed integer labels including uncommon widths such as int40.
+ */
+function isSignedIntegerType(label: string): boolean {
+  return /^int(\d+)?$/.test(label)
+}
+
+/**
+ * Extracts the declared integer width, defaulting uint/int aliases to 256 bits.
+ */
+function getIntegerBitWidth(label: string, prefix: 'uint' | 'int'): number {
+  const bits = parseInt(label.slice(prefix.length), 10)
+  return Number.isFinite(bits) ? bits : 256
+}
+
+/**
+ * Masks a storage value down to the declared integer width before decoding it.
+ * This protects smaller ints from stray upper bits and matches Solidity's type width.
+ */
+function maskToBitWidth(value: bigint, bits: number): bigint {
+  if (bits >= 256) {
+    return value
+  }
+
+  return value & ((1n << BigInt(bits)) - 1n)
+}
+
+/**
+ * Decodes a two's-complement signed integer after constraining it to its declared width.
+ */
+function decodeSignedInteger(value: bigint, bits: number): string {
+  const masked = maskToBitWidth(value, bits)
+  const threshold = 1n << BigInt(bits - 1)
+
+  if (masked >= threshold) {
+    return (masked - (1n << BigInt(bits))).toString()
+  }
+
+  return masked.toString()
 }
 
 /**
