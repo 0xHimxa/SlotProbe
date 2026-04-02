@@ -15,3 +15,14 @@ note am gonna avoid dynamic array of dynamic array as part of calculation, it ki
 
 
 keep mapping that return struct that contain array tho simil opperation like above is been performd if it 32 byts no packed else it will  be packed together
+
+
+dynamic string 
+
+// make the outcome like this
+  Old: owner (address)
+  New: fee   (uint256)
+
+
+
+--rpc-url https://base-sepolia.g.alchemy.com/v2/KJ1Tuwa06gu31_-ICeiaV 
