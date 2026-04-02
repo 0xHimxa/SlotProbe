@@ -61,7 +61,7 @@ export async function readSlot(
  * @param chain - Target chain
  * @param blockNumber - Optional block number for historical reads
  * @param rpcUrl - Optional custom RPC URL
- * @param concurrency - Max concurrent reads (default: 5)
+ * @param concurrency - Max concurrent reads (default: 50)
  * @returns Map of slot number to value
  */
 export async function readSlots(
