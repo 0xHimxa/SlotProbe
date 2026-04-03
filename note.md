@@ -1,4 +1,4 @@
-
+check bytesN decode for packed bytes decoding 
 
  when to packed item to slot: 
 if items are not updated same times is better to assign them seperately it will be chapper that way than updating on and leave the other it will be computational expensive because evm have to read, distructure, write(check prob might be better to use assembly yul when trying to  assign both)
