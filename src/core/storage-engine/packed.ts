@@ -26,6 +26,7 @@ export interface PackedValue {
  * @param rawSlot - 64-char hex string (32 bytes)
  * @param byteOffset - Byte offset from the RIGHT of the slot
  * @param numBytes - Number of bytes to extract
+ * 
  */
 export function extractPackedValue(
   rawSlot: string,

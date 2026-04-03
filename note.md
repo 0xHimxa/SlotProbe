@@ -20,3 +20,8 @@ dynamic string
   Old: owner (address)
   New: fee   (uint256)
 
+
+ caclulating bytes char, extracting
+
+startChar = $$\text{startChar} = (32 - \text{offset} - \text{size}) \times 2$$
+ endChar = $$\text{endChar} =  startChar( number of bytes * 2 )
