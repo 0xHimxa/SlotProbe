@@ -25,3 +25,9 @@ dynamic string
 
 startChar = $$\text{startChar} = (32 - \text{offset} - \text{size}) \times 2$$
  endChar = $$\text{endChar} =  startChar( number of bytes * 2 )
+
+
+ check weather nested value is been handle for uint or other value than address
+
+this following function Uitility is not been used it using the json provided since is has similar stufff
+structMemberSlot, structMemberByteOffset
