@@ -7,7 +7,7 @@
  * Reference: https://docs.soliditylang.org/en/latest/internals/layout_in_storage.html
  */
 
-import { keccak256, encodePacked, pad, toHex } from 'viem'
+import { keccak256, encodePacked, pad, toHex, encodeAbiParameters } from 'viem'
 
 /**
  * Base slot for a storage variable.
@@ -76,12 +76,16 @@ export function nestedMappingSlot(keys: `0x${string}`[], baseSlot: bigint): bigi
  * Handles uint, int, bytes32 keys by packing them properly.
  */
 export function mappingSlotForValue(
-  key: bigint | string | number,
+  key: bigint | number | `0x${string}`,
   baseSlot: bigint
 ): bigint {
   const paddedKey = pad(toHex(key), { size: 32 })
   const paddedSlot = pad(toHex(baseSlot), { size: 32 })
-  const encoded = encodePacked(['bytes32', 'bytes32'], [paddedKey, paddedSlot])
+  const encoded = encodeAbiParameters(
+    [{ type: 'bytes32' }, { type: 'bytes32' }],
+    [paddedKey, paddedSlot]
+  )
+
   return BigInt(keccak256(encoded))
 }
 

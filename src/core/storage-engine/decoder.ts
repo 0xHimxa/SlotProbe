@@ -141,6 +141,12 @@ function isSignedIntegerType(label: string): boolean {
  */
 function getIntegerBitWidth(label: string, prefix: 'uint' | 'int'): number {
   const bits = parseInt(label.slice(prefix.length), 10)
+  // 3. Range check: Solidity ints must be 8-256 and divisible by 8
+  const isValid = bits >= 8 && bits <= 256 && bits % 8 === 0
+  
+  if (!isValid) {
+    throw new Error(`Invalid Solidity integer width: ${label}`)
+  }
   return Number.isFinite(bits) ? bits : 256
 }
 
