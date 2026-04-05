@@ -18,8 +18,6 @@ export {
 } from './slot-calculator.js'
 export {
   decodeValue,
-  decodePackedValue,
-  decodePackedAddress,
   getTypeLabel,
   type DecodedValue,
 } from './decoder.js'

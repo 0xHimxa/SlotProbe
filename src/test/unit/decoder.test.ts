@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  decodePackedAddress,
-  decodePackedValue,
   decodeValue,
   getTypeLabel,
 } from '../../core/storage-engine/decoder.js'
@@ -104,24 +102,6 @@ describe('decoder', () => {
       expect(decodeValue(rawSlot, 't_customStruct')).toBe(
         '0x0000000000000000000000000000000000000000000000000000000000001234'
       )
-    })
-  })
-
-  describe('decodePackedValue', () => {
-    it('extracts packed bytes using the byte offset from the right side of the slot', () => {
-      const rawSlot = '0x11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff'
-
-      expect(decodePackedValue(rawSlot, 4, 2)).toBe(
-        '0x000000000000000000000000000000000000000000000000000000000000aabb'
-      )
-    })
-  })
-
-  describe('decodePackedAddress', () => {
-    it('extracts a packed address at the requested offset', () => {
-      const rawSlot = '0x00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'
-
-      expect(decodePackedAddress(rawSlot, 0)).toBe('0xccddeeff00112233445566778899aabbccddeeff')
     })
   })
 

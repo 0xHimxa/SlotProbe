@@ -212,39 +212,6 @@ function hexToUtf8(hex: string): string {
 }
 
 /**
- * Decodes a packed value from a 32-byte slot.
- * Used when multiple variables share a single slot.
- * 
- * @param rawHex - Raw slot value
- * @param byteOffset - Byte offset where the value starts (from right)
- * @param bytes - Number of bytes the value occupies
- */
-export function decodePackedValue(
-  rawHex: string,
-  byteOffset: number,
-  bytes: number
-): DecodedValue {
-  const hex = rawHex.replace('0x', '').padStart(64, '0')
-  const startByte = 32 - byteOffset - bytes
-  const startChar = startByte * 2
-  const endChar = startChar + bytes * 2
-  const extracted = hex.slice(startChar, endChar).padStart(64, '0')
-  
-  return `0x${extracted}`
-}
-
-/**
- * Decodes address from packed bytes (right-aligned in slot).
- */
-export function decodePackedAddress(rawHex: string, byteOffset: number): string {
-  const hex = rawHex.replace('0x', '').padStart(64, '0')
-  const startByte = 32 - byteOffset - 20
-  const startChar = startByte * 2
-  const endChar = startChar + 40
-  return `0x${hex.slice(startChar, endChar)}`
-}
-
-/**
  * Gets human-readable type label from internal type string.
  */
 export function getTypeLabel(internalType: string): string {
