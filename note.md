@@ -8,7 +8,7 @@ if items are not updated same times is better to assign them seperately it will 
 
 $$\text{Slot} = \text{keccak256}(\text{ArraySlot}) + \left( \frac{i \times \text{sizeOf(Type)}}{256} \right)$$
 
-
+ need to undo captue to it pev logic
 
 
 keep mapping that return struct that contain array tho simil opperation like above is been performd if it 32 byts no packed else it will  be packed together
