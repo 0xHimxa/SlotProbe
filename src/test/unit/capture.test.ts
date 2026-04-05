@@ -81,8 +81,37 @@ describe('captureSnapshot', () => {
           offset: 1,
           numberOfBytes: 4,
         },
+        {
+          name: 'selectorAtZero',
+          type: 't_bytes4',
+          label: 'bytes4',
+          slot: 5n,
+          offset: 0,
+          numberOfBytes: 4,
+        },
+        {
+          name: 'packedSelectorFirst',
+          type: 't_bytes4',
+          label: 'bytes4',
+          slot: 6n,
+          offset: 0,
+          numberOfBytes: 4,
+        },
+        {
+          name: 'packedCounterAfterSelector',
+          type: 't_uint16',
+          label: 'uint16',
+          slot: 6n,
+          offset: 4,
+          numberOfBytes: 2,
+        },
       ],
       types: {
+        t_uint16: {
+          encoding: 'inplace',
+          numberOfBytes: 2,
+          label: 'uint16',
+        },
         t_uint256: {
           encoding: 'inplace',
           numberOfBytes: 32,
@@ -160,6 +189,8 @@ describe('captureSnapshot', () => {
       [titleDataSlot + 1n, secondTitleChunk],
       [3n, encodeShortBytes('112233')],
       [4n, asSlotHex('0x0000000000000000000000000000000000000000000000000000001234567800')],
+      [5n, asSlotHex('0x1234567800000000000000000000000000000000000000000000000000000000')],
+      [6n, asSlotHex('0x0000000000000000000000000000000000000000000000000000aabb12345678')],
     ])
 
     mockParseArtifact.mockReturnValue(layout)
@@ -188,6 +219,9 @@ describe('captureSnapshot', () => {
     expect(findEntry(snapshot, 'title')?.decodedValue).toBe(longTitle)
     expect(findEntry(snapshot, 'blob')?.decodedValue).toBe('0x112233')
     expect(findEntry(snapshot, 'selector')?.decodedValue).toBe('0x12345678')
+    expect(findEntry(snapshot, 'selectorAtZero')?.decodedValue).toBe('0x12345678')
+    expect(findEntry(snapshot, 'packedSelectorFirst')?.decodedValue).toBe('0x12345678')
+    expect(findEntry(snapshot, 'packedCounterAfterSelector')?.decodedValue).toBe('43707')
   })
 })
 

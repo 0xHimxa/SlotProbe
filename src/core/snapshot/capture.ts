@@ -84,7 +84,10 @@ export async function captureSnapshot(options: CaptureOptions): Promise<Snapshot
 
   for (const variable of layout.variables) {
     const variableEntries = await captureVariableEntries({
+
       variable,
+      //get back to this logic check
+      siblingVariables: layout.variables,
       path: variable.name,
       baseSlot: variable.slot,
       layout,
@@ -128,6 +131,8 @@ interface CaptureVariableInput extends CaptureContext {
     offset: number
     numberOfBytes: number
   }
+  //check
+  siblingVariables: StorageVariable[]
   path: string
   baseSlot: bigint
 }
@@ -187,9 +192,9 @@ async function captureLeafEntry(input: CaptureVariableInput): Promise<SnapshotEn
     }
   }
 
-  if (isPackedFixedBytes(input.variable)) {
-    // Fixed-size bytes inside packed slots are left-aligned within their own byte region,
-    // so we keep the exact extracted bytes instead of padding them like an integer.
+  if (isPackedFixedBytes(input.variable, input.siblingVariables)) {
+    // Fixed-size bytes are left-aligned within their occupied byte region, so keep the
+    // exact extracted bytes instead of routing through integer-style padding/decoding.
     const rawValue = extractExactPackedValue(slotValue, input.variable.offset, input.variable.numberOfBytes)
 
     return {
@@ -231,6 +236,7 @@ async function captureStructEntries(
     const memberEntries = await captureVariableEntries({
       ...input,
       variable: member,
+      siblingVariables: typeInfo.members ?? [],
       path: `${input.path}.${member.name}`,
       baseSlot: memberBaseSlot,
     })
@@ -281,6 +287,7 @@ async function captureDynamicArrayEntries(
     const elementEntries = await captureVariableEntries({
       ...input,
       variable: elementVariable,
+      siblingVariables: [elementVariable],
       path: `${input.path}[${index.toString()}]`,
       baseSlot: elementBaseSlot,
     })
@@ -318,6 +325,7 @@ async function captureMappingEntries(
     const valueEntries = await captureVariableEntries({
       ...input,
       variable: valueVariable,
+      siblingVariables: [valueVariable],
       path: `${input.path}[${key}]`,
       baseSlot: entrySlot,
     })
@@ -472,8 +480,23 @@ function isDynamicBytesOrStringType(variable: { label: string; type: string }): 
 /**
  * Detects packed fixed-size bytes values, which must preserve their exact extracted byte region.
  */
-function isPackedFixedBytes(variable: { label: string; numberOfBytes: number; offset: number }): boolean {
-  return /^bytes\d+$/.test(variable.label) && variable.numberOfBytes < 32 && variable.offset > 0
+
+//New logic check
+function isPackedFixedBytes(
+  variable: { name: string; label: string; slot: bigint; numberOfBytes: number; offset: number },
+  siblingVariables: Array<{ name: string; slot: bigint }>
+): boolean {
+  if (!/^bytes\d+$/.test(variable.label) || variable.numberOfBytes >= 32) {
+    return false
+  }
+
+  if (variable.offset > 0) {
+    return true
+  }
+
+  return siblingVariables.some(
+    (sibling) => sibling.name !== variable.name && sibling.slot === variable.slot
+  )
 }
 
 /**
@@ -496,5 +519,5 @@ function shouldExtractPackedValue(variable: {
     return false
   }
 
-  return /^(t_)?(u?int\d+|address(_payable)?|bool|bytes\d+)$/.test(variable.type)
+  return /^(t_)?(u?int\d+|address(_payable)?|bool)$/.test(variable.type)
 }
