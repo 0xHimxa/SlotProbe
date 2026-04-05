@@ -140,14 +140,19 @@ function isSignedIntegerType(label: string): boolean {
  * Extracts the declared integer width, defaulting uint/int aliases to 256 bits.
  */
 function getIntegerBitWidth(label: string, prefix: 'uint' | 'int'): number {
-  const bits = parseInt(label.slice(prefix.length), 10)
+  const width = label.slice(prefix.length)
+  if (width === '') {
+    return 256
+  }
+
+  const bits = parseInt(width, 10)
   // 3. Range check: Solidity ints must be 8-256 and divisible by 8
   const isValid = bits >= 8 && bits <= 256 && bits % 8 === 0
   
   if (!isValid) {
     throw new Error(`Invalid Solidity integer width: ${label}`)
   }
-  return Number.isFinite(bits) ? bits : 256
+  return  bits; 
 }
 
 /**
@@ -169,7 +174,7 @@ function decodeSignedInteger(value: bigint, bits: number): string {
   const masked = maskToBitWidth(value, bits)
   const threshold = 1n << BigInt(bits - 1)
 
-  if (masked >= threshold) {
+  if (masked >= threshold) { 
     return (masked - (1n << BigInt(bits))).toString()
   }
 
@@ -235,7 +240,8 @@ export function decodePackedAddress(rawHex: string, byteOffset: number): string 
   const hex = rawHex.replace('0x', '').padStart(64, '0')
   const startByte = 32 - byteOffset - 20
   const startChar = startByte * 2
-  return `0x${hex.slice(startChar, startChar + 40)}`
+  const endChar = startChar + 40
+  return `0x${hex.slice(startChar, endChar)}`
 }
 
 /**
