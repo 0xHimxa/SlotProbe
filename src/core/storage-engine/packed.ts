@@ -92,6 +92,9 @@ export function getByteOffset(layout: { offset: number }): number {
 export function getTypeBytes(type: string): number {
   if (type.startsWith('uint') || type.startsWith('int')) {
     const bits = parseInt(type.replace(/uint|int/, '')) || 256
+    if (bits < 8 || bits > 256 || bits % 8 !== 0) {
+      throw new Error(`Invalid Solidity integer width: ${type}`)
+    }
     return bits / 8
   }
   if (type === 'address') return 20
@@ -101,7 +104,10 @@ export function getTypeBytes(type: string): number {
   }
   if (/^bytes\d+$/.test(type)) {
     const size = parseInt(type.replace('bytes', ''))
-    return size || 32
+    if (size < 1 || size > 32) {
+      throw new Error(`Invalid fixed bytes width: ${type}`)
+    }
+    return size
   }
   return 32
 }

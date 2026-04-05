@@ -11,6 +11,27 @@ $$\text{Slot} = \text{keccak256}(\text{ArraySlot}) + \left( \frac{i \times \text
  need to undo captue to it pev logic
 
 
+
+
+
+
+
+
+
+
+need to check how data is been passed to mapping for slot calculation
+
+
+
+
+
+
+
+
+
+
+
+
 keep mapping that return struct that contain array tho simil opperation like above is been performd if it 32 byts no packed else it will  be packed together
 
 

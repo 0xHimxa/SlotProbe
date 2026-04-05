@@ -79,7 +79,8 @@ export function mappingSlotForValue(
   key: bigint | number | `0x${string}`,
   baseSlot: bigint
 ): bigint {
-  const paddedKey = pad(toHex(key), { size: 32 })
+  const normalizedKey = typeof key === 'string' ? key : toHex(key)
+  const paddedKey = pad(normalizedKey, { size: 32 })
   const paddedSlot = pad(toHex(baseSlot), { size: 32 })
   const encoded = encodeAbiParameters(
     [{ type: 'bytes32' }, { type: 'bytes32' }],
