@@ -6,7 +6,7 @@
  */
 
 import { getClient, type SupportedChain } from '../../rpc/index.js'
-import { readSlot } from '../storage-engine/reader.js'
+import { readSlots } from '../storage-engine/reader.js'
 import { decodeValue } from '../storage-engine/decoder.js'
 import { extractPackedValue } from '../storage-engine/packed.js'
 import { parseArtifact } from '../artifact-parser/normalizer.js'
@@ -97,6 +97,7 @@ export async function captureSnapshot(options: CaptureOptions): Promise<Snapshot
   const entries: SnapshotEntry[] = []
   // Cache slot reads so expanded structs/arrays/mappings do not re-fetch the same slot.
   const slotCache = new Map<bigint, Promise<`0x${string}`>>()
+  const slotBatch = createSlotBatchState()
 
   for (const variable of layout.variables) {
     const variableEntries = await captureVariableEntries({
@@ -110,6 +111,7 @@ export async function captureSnapshot(options: CaptureOptions): Promise<Snapshot
       options,
       blockNum,
       slotCache,
+      slotBatch,
     })
     entries.push(...variableEntries)
   }
@@ -136,6 +138,7 @@ interface CaptureContext {
   options: CaptureOptions
   blockNum?: bigint
   slotCache: Map<bigint, Promise<`0x${string}`>>
+  slotBatch: SlotBatchState
 }
 
 interface CaptureVariableInput extends CaptureContext {
@@ -185,7 +188,8 @@ async function captureLeafEntry(input: CaptureVariableInput): Promise<SnapshotEn
     input.baseSlot,
     input.options,
     input.blockNum,
-    input.slotCache
+    input.slotCache,
+    input.slotBatch
   )
   const typeInfo = input.layout.types[input.variable.type]
 
@@ -195,7 +199,7 @@ async function captureLeafEntry(input: CaptureVariableInput): Promise<SnapshotEn
       slotValue,
       input.variable,
       input.baseSlot,
-      (slot) => getSlotValue(slot, input.options, input.blockNum, input.slotCache)
+      (slot) => getSlotValue(slot, input.options, input.blockNum, input.slotCache, input.slotBatch)
     )
 
     return {
@@ -245,8 +249,17 @@ async function captureStructEntries(
   typeInfo: TypeInfo
 ): Promise<SnapshotEntry[]> {
   const entries: SnapshotEntry[] = []
+  const members = typeInfo.members ?? []
 
-  for (const member of typeInfo.members ?? []) {
+  await getSlotValues(
+    members.map((member) => input.baseSlot + member.slot),
+    input.options,
+    input.blockNum,
+    input.slotCache,
+    input.slotBatch
+  )
+
+  for (const member of members) {
     // Member.slot is relative to the struct base slot, not the contract root slot.
     const memberBaseSlot = input.baseSlot + member.slot
     const memberEntries = await captureVariableEntries({
@@ -274,7 +287,8 @@ async function captureDynamicArrayEntries(
     input.baseSlot,
     input.options,
     input.blockNum,
-    input.slotCache
+    input.slotCache,
+    input.slotBatch
   )
   const length = BigInt(lengthSlotValue)
   const entries: SnapshotEntry[] = [
@@ -296,6 +310,19 @@ async function captureDynamicArrayEntries(
   const elementSlots = getSlotsPerValue(elementType)
   // Dynamic array payload starts at keccak256(baseSlot); multi-slot elements advance from there.
   const dataStartSlot = bytesSlot(input.baseSlot)
+  const elementBaseSlots: bigint[] = []
+
+  for (let index = 0n; index < length; index += 1n) {
+    elementBaseSlots.push(dataStartSlot + index * BigInt(elementSlots))
+  }
+
+  await getSlotValues(
+    elementBaseSlots,
+    input.options,
+    input.blockNum,
+    input.slotCache,
+    input.slotBatch
+  )
 
   for (let index = 0n; index < length; index += 1n) {
     const elementBaseSlot = dataStartSlot + index * BigInt(elementSlots)
@@ -358,23 +385,115 @@ async function getSlotValue(
   slot: bigint,
   options: CaptureOptions,
   blockNum: bigint | undefined,
-  slotCache: Map<bigint, Promise<`0x${string}`>>
+  slotCache: Map<bigint, Promise<`0x${string}`>>,
+  slotBatch: SlotBatchState
 ): Promise<`0x${string}`> {
-  let pending = slotCache.get(slot)
+  const [value] = await getSlotValues([slot], options, blockNum, slotCache, slotBatch)
+  return value
+}
 
-  if (!pending) {
-    // Store the promise immediately so concurrent callers share the same in-flight read.
-    pending = readSlot(
-      options.address,
-      slot,
-      options.chain,
-      blockNum,
-      options.rpcUrl
-    )
-    slotCache.set(slot, pending)
+interface SlotBatchState {
+  queuedSlots: Set<bigint>
+  pendingResolvers: Map<bigint, {
+    resolve: (value: `0x${string}`) => void
+    reject: (error: unknown) => void
+  }>
+  flushPromise?: Promise<void>
+}
+
+function createSlotBatchState(): SlotBatchState {
+  return {
+    queuedSlots: new Set(),
+    pendingResolvers: new Map(),
+  }
+}
+
+async function getSlotValues(
+  slots: bigint[],
+  options: CaptureOptions,
+  blockNum: bigint | undefined,
+  slotCache: Map<bigint, Promise<`0x${string}`>>,
+  slotBatch: SlotBatchState
+): Promise<`0x${string}`[]> {
+  for (const slot of slots) {
+    if (!slotCache.has(slot)) {
+      slotCache.set(
+        slot,
+        new Promise<`0x${string}`>((resolve, reject) => {
+          slotBatch.pendingResolvers.set(slot, { resolve, reject })
+          slotBatch.queuedSlots.add(slot)
+        })
+      )
+    }
   }
 
-  return pending
+  await flushQueuedSlots(options, blockNum, slotCache, slotBatch)
+
+  return Promise.all(
+    slots.map((slot) => {
+      const pending = slotCache.get(slot)
+      if (!pending) {
+        throw new Error(`Missing slot cache entry for slot ${slot.toString()}`)
+      }
+      return pending
+    })
+  )
+}
+
+async function flushQueuedSlots(
+  options: CaptureOptions,
+  blockNum: bigint | undefined,
+  slotCache: Map<bigint, Promise<`0x${string}`>>,
+  slotBatch: SlotBatchState
+): Promise<void> {
+  if (!slotBatch.flushPromise) {
+    slotBatch.flushPromise = (async () => {
+      while (slotBatch.queuedSlots.size > 0) {
+        const slots = Array.from(slotBatch.queuedSlots)
+        slotBatch.queuedSlots.clear()
+
+        try {
+          const values = await readSlots(
+            options.address,
+            slots,
+            options.chain,
+            blockNum,
+            options.rpcUrl
+          )
+
+          for (const slot of slots) {
+            const resolver = slotBatch.pendingResolvers.get(slot)
+            const value = values.get(slot)
+
+            if (!resolver) {
+              continue
+            }
+
+            if (!value) {
+              resolver.reject(new Error(`Batch reader did not return a value for slot ${slot.toString()}`))
+              slotCache.delete(slot)
+              slotBatch.pendingResolvers.delete(slot)
+              continue
+            }
+
+            resolver.resolve(value)
+            slotBatch.pendingResolvers.delete(slot)
+          }
+        } catch (error) {
+          for (const slot of slots) {
+            slotBatch.pendingResolvers.get(slot)?.reject(error)
+            slotBatch.pendingResolvers.delete(slot)
+            slotCache.delete(slot)
+          }
+          throw error
+        }
+      }
+    })().finally(() => {
+      slotBatch.flushPromise = undefined
+    })
+  }
+
+  await slotBatch.flushPromise
 }
 
 /**
@@ -401,6 +520,7 @@ function estimateReadSlotCalls(layout: StorageLayout, options: CaptureOptions): 
         options,
         blockNum: options.blockNumber,
         slotCache: new Map(),
+        slotBatch: createSlotBatchState(),
         variable,
         siblingVariables: layout.variables,
         path: variable.name,

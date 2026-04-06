@@ -2,14 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { bytesSlot, mappingSlot } from '../../core/storage-engine/slot-calculator.js'
 import type { StorageLayout } from '../../core/artifact-parser/types.js'
 
-const { mockReadSlot, mockGetBlock, mockParseArtifact } = vi.hoisted(() => ({
+const { mockReadSlot, mockReadSlots, mockGetBlock, mockParseArtifact } = vi.hoisted(() => ({
   mockReadSlot: vi.fn(),
+  mockReadSlots: vi.fn(),
   mockGetBlock: vi.fn(),
   mockParseArtifact: vi.fn(),
 }))
 
 vi.mock('../../core/storage-engine/reader.js', () => ({
   readSlot: mockReadSlot,
+  readSlots: mockReadSlots,
 }))
 
 vi.mock('../../rpc/index.js', () => ({
@@ -27,6 +29,7 @@ import { captureSnapshot, dryRunCapture } from '../../core/snapshot/capture.js'
 describe('captureSnapshot', () => {
   beforeEach(() => {
     mockReadSlot.mockReset()
+    mockReadSlots.mockReset()
     mockGetBlock.mockReset()
     mockParseArtifact.mockReset()
     mockGetBlock.mockResolvedValue({ number: 123n })
@@ -216,12 +219,18 @@ describe('captureSnapshot', () => {
     ])
 
     mockParseArtifact.mockReturnValue(layout)
-    mockReadSlot.mockImplementation(async (_address: string, slot: bigint) => {
-      const value = slots.get(slot)
-      if (!value) {
-        throw new Error(`unexpected slot read: ${slot.toString()}`)
+    mockReadSlots.mockImplementation(async (_address: string, requestedSlots: bigint[]) => {
+      const results = new Map<bigint, `0x${string}`>()
+
+      for (const slot of requestedSlots) {
+        const value = slots.get(slot)
+        if (!value) {
+          throw new Error(`unexpected slot read: ${slot.toString()}`)
+        }
+        results.set(slot, value)
       }
-      return value
+
+      return results
     })
 
     const snapshot = await captureSnapshot({
@@ -246,6 +255,8 @@ describe('captureSnapshot', () => {
     expect(findEntry(snapshot, 'packedCounterAfterSelector')?.decodedValue).toBe('43707')
     expect(findEntry(snapshot, 'status')?.decodedValue).toBe('2')
     expect(findEntry(snapshot, 'statusCounter')?.decodedValue).toBe('52719')
+    expect(mockReadSlot).not.toHaveBeenCalled()
+    expect(mockReadSlots).toHaveBeenCalled()
   })
 })
 
