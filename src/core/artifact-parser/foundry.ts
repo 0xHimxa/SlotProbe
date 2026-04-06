@@ -17,6 +17,15 @@ export interface FoundryArtifact {
   storageLayout?: FoundryRawLayout
 }
 
+function isRawFoundryLayout(value: unknown): value is FoundryRawLayout {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Partial<FoundryRawLayout>
+  return Array.isArray(candidate.storage) && typeof candidate.types === 'object' && candidate.types !== null
+}
+
 /**
  * Parses a Foundry artifact JSON file and extracts storage layout.
  * 
@@ -25,18 +34,20 @@ export interface FoundryArtifact {
  * @throws Error if storageLayout not found in artifact
  */
 export function parseFoundryArtifact(artifactPath: string): StorageLayout {
-  const raw: FoundryArtifact = JSON.parse(readFileSync(artifactPath, 'utf-8'))
+  const raw = JSON.parse(readFileSync(artifactPath, 'utf-8')) as FoundryArtifact | FoundryRawLayout
+  const layout = isRawFoundryLayout(raw) ? raw : raw.storageLayout
 
-  if (!raw.storageLayout) {
+  if (!layout) {
     throw new Error(
       `No storageLayout found in ${artifactPath}.\n` +
+      `Expected either:\n` +
+      `  1. A full Foundry artifact with a "storageLayout" field, or\n` +
+      `  2. A raw storage layout JSON with top-level "storage" and "types".\n\n` +
       `Enable it in your foundry.toml:\n` +
       `  [profile.default]\n` +
       `  extra_output = ["storageLayout"]`
     )
   }
-
-  const layout = raw.storageLayout
 
   const variables = layout.storage.map((v) => {
     const typeInfo = layout.types[v.type]
@@ -97,3 +108,7 @@ export function parseFoundryArtifact(artifactPath: string): StorageLayout {
     types,
   })
 }
+
+
+const runSee = parseFoundryArtifact(`./test.json`);
+console.log(runSee);
