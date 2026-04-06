@@ -519,5 +519,5 @@ function shouldExtractPackedValue(variable: {
     return false
   }
 
-  return /^(t_)?(u?int\d+|address(_payable)?|bool)$/.test(variable.type)
+  return /^(t_)?(u?int\d+|address(_payable)?|bool)$/.test(variable.type) || /^t_enum\(.+\)\d+$/.test(variable.type)
 }

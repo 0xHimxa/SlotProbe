@@ -105,8 +105,29 @@ describe('captureSnapshot', () => {
           offset: 4,
           numberOfBytes: 2,
         },
+        {
+          name: 'status',
+          type: 't_enum(Status)6',
+          label: 'enum StorageHarness.Status',
+          slot: 7n,
+          offset: 0,
+          numberOfBytes: 1,
+        },
+        {
+          name: 'statusCounter',
+          type: 't_uint16',
+          label: 'uint16',
+          slot: 7n,
+          offset: 1,
+          numberOfBytes: 2,
+        },
       ],
       types: {
+        't_enum(Status)6': {
+          encoding: 'inplace',
+          numberOfBytes: 1,
+          label: 'enum StorageHarness.Status',
+        },
         t_uint16: {
           encoding: 'inplace',
           numberOfBytes: 2,
@@ -191,6 +212,7 @@ describe('captureSnapshot', () => {
       [4n, asSlotHex('0x0000000000000000000000000000000000000000000000000000001234567800')],
       [5n, asSlotHex('0x1234567800000000000000000000000000000000000000000000000000000000')],
       [6n, asSlotHex('0x0000000000000000000000000000000000000000000000000000aabb12345678')],
+      [7n, asSlotHex('0x0000000000000000000000000000000000000000000000000000000000cdef02')],
     ])
 
     mockParseArtifact.mockReturnValue(layout)
@@ -222,6 +244,8 @@ describe('captureSnapshot', () => {
     expect(findEntry(snapshot, 'selectorAtZero')?.decodedValue).toBe('0x12345678')
     expect(findEntry(snapshot, 'packedSelectorFirst')?.decodedValue).toBe('0x12345678')
     expect(findEntry(snapshot, 'packedCounterAfterSelector')?.decodedValue).toBe('43707')
+    expect(findEntry(snapshot, 'status')?.decodedValue).toBe('2')
+    expect(findEntry(snapshot, 'statusCounter')?.decodedValue).toBe('52719')
   })
 })
 

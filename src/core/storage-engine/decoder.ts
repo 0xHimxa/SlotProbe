@@ -104,6 +104,10 @@ function normalizeTypeLabel(solidityType: string): string {
     return TYPE_LABELS[solidityType]
   }
 
+  if (/^t_enum\(.+\)\d+$/.test(solidityType)) {
+    return 'uint8'
+  }
+
   const uintMatch = solidityType.match(/^t_uint(\d+)?$/)
   if (uintMatch) {
     return `uint${uintMatch[1] ?? '256'}`

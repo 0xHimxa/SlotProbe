@@ -12,6 +12,12 @@ describe('decoder', () => {
       expect(decodeValue(rawSlot, 't_uint24')).toBe('11259375')
     })
 
+    it('decodes enum internal type ids to their ordinal value', () => {
+      const rawSlot = '0x0000000000000000000000000000000000000000000000000000000000000002'
+
+      expect(decodeValue(rawSlot, 't_enum(Status)6')).toBe('2')
+    })
+
     it('treats uint aliases as uint256 values', () => {
       const rawSlot = '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
 
