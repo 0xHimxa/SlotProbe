@@ -110,5 +110,3 @@ export function parseFoundryArtifact(artifactPath: string): StorageLayout {
 }
 
 
-const runSee = parseFoundryArtifact(`./test.json`);
-console.log(runSee);

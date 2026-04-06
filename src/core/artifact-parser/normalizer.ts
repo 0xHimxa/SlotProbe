@@ -8,7 +8,7 @@
 import { readFileSync } from 'node:fs'
 import { parseFoundryArtifact } from './foundry.js'
 import { parseHardhatArtifact } from './hardhat.js'
-import type { StorageLayout } from './types.js'
+import type { FoundryRawLayout, StorageLayout } from './types.js'
 
 export interface ArtifactFormat {
   /** "foundry" or "hardhat" */
@@ -17,20 +17,32 @@ export interface ArtifactFormat {
   path: string
 }
 
+function isRawFoundryLayout(value: unknown): value is FoundryRawLayout {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Partial<FoundryRawLayout>
+  return Array.isArray(candidate.storage) && typeof candidate.types === 'object' && candidate.types !== null
+}
+
 /**
  * Detects whether an artifact is Foundry or Hardhat format.
  * Foundry artifacts have bytecode as an object with "object" key.
  * Hardhat artifacts have bytecode as a plain string or undefined.
  */
 export function detectFormat(artifactPath: string): ArtifactFormat {
-  const raw = JSON.parse(readFileSync(artifactPath, 'utf-8'))
+  const raw = JSON.parse(readFileSync(artifactPath, 'utf-8')) as Record<string, unknown> | FoundryRawLayout
   
   const isFoundry = 
-    'abi' in raw &&
-    'bytecode' in raw &&
-    typeof raw.bytecode === 'object' &&
-    raw.bytecode !== null &&
-    'object' in raw.bytecode
+    isRawFoundryLayout(raw) ||
+    (
+      'abi' in raw &&
+      'bytecode' in raw &&
+      typeof raw.bytecode === 'object' &&
+      raw.bytecode !== null &&
+      'object' in raw.bytecode
+    )
 
   return {
     format: isFoundry ? 'foundry' : 'hardhat',
@@ -61,12 +73,12 @@ export function parseArtifact(artifactPath: string): StorageLayout {
  */
 export function validateArtifact(artifactPath: string): { valid: boolean; error?: string } {
   try {
-    const raw = JSON.parse(readFileSync(artifactPath, 'utf-8'))
+    const raw = JSON.parse(readFileSync(artifactPath, 'utf-8')) as Record<string, unknown> | FoundryRawLayout
     
-    if (!raw.storageLayout) {
+    if (!isRawFoundryLayout(raw) && !raw.storageLayout) {
       return {
         valid: false,
-        error: `Missing storageLayout in artifact. Enable storage layout output in your build config.`,
+        error: `Missing storage layout data in artifact. Expected either a "storageLayout" field or top-level "storage" and "types".`,
       }
     }
     
