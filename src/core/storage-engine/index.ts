@@ -7,6 +7,8 @@
 
 export { readSlot, readSlots } from './reader.js'
 export {
+  decodeMappingKeyFromHex,
+  encodeMappingKeyToHex,
   mappingSlot,
   arrayElementSlot,
   bytesSlot,

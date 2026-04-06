@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { encodeAbiParameters, keccak256, pad, toHex } from 'viem'
+import { encodeAbiParameters, encodePacked, keccak256, pad, toHex } from 'viem'
 import {
   arrayElementSlot,
   bytesSlot,
+  decodeMappingKeyFromHex,
+  encodeMappingKeyToHex,
   mappingSlot,
   mappingSlotForValue,
   nestedMappingSlot,
@@ -92,6 +94,49 @@ describe('slot-calculator', () => {
       )
 
       expect(mappingSlotForValue(key, baseSlot)).toBe(expected)
+    })
+
+    it('hashes dynamic string keys using raw bytes plus the padded base slot', () => {
+      const key = encodeMappingKeyToHex('cat', 't_string_storage')
+      const baseSlot = 9n
+      const paddedSlot = pad(toHex(baseSlot), { size: 32 })
+      const expected = BigInt(keccak256(encodePacked(['bytes', 'bytes32'], [key, paddedSlot])))
+
+      expect(mappingSlotForValue(key, baseSlot, 't_string_storage')).toBe(expected)
+    })
+  })
+
+  describe('mapping key conversion helpers', () => {
+    it('converts short strings to raw utf-8 hex and back', () => {
+      const encoded = encodeMappingKeyToHex('cat', 't_string_storage')
+
+      expect(encoded).toBe('0x636174')
+      expect(decodeMappingKeyFromHex(encoded, 't_string_storage')).toBe('cat')
+    })
+
+    it('accepts short dynamic bytes and returns them unchanged on decode', () => {
+      const encoded = encodeMappingKeyToHex('0x112233', 't_bytes_storage')
+
+      expect(encoded).toBe('0x112233')
+      expect(decodeMappingKeyFromHex(encoded, 't_bytes_storage')).toBe('0x112233')
+    })
+
+    it('rejects long dynamic strings and bytes when converting user input to hex', () => {
+      expect(() => encodeMappingKeyToHex('x'.repeat(32), 't_string_storage')).toThrow(
+        'String mapping keys longer than 31 bytes are not supported'
+      )
+      expect(() => encodeMappingKeyToHex(`0x${'11'.repeat(32)}`, 't_bytes_storage')).toThrow(
+        'Bytes mapping keys longer than 31 bytes are not supported'
+      )
+    })
+
+    it('rejects long dynamic string and bytes hex on decode', () => {
+      expect(() => decodeMappingKeyFromHex(`0x${'61'.repeat(32)}`, 't_string_storage')).toThrow(
+        'String mapping key hex longer than 31 bytes is not supported'
+      )
+      expect(() => decodeMappingKeyFromHex(`0x${'11'.repeat(32)}`, 't_bytes_storage')).toThrow(
+        'Bytes mapping key hex longer than 31 bytes is not supported'
+      )
     })
   })
 

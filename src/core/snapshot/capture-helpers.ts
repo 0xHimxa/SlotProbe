@@ -1,19 +1,21 @@
-import { mappingSlot, mappingSlotForValue } from '../storage-engine/slot-calculator.js'
+import { encodeMappingKeyToHex, mappingSlot, mappingSlotForValue } from '../storage-engine/slot-calculator.js'
 import type { StorageLayout, StorageVariable, TypeInfo } from '../artifact-parser/types.js'
 
 /**
  * Calculates the root slot for a mapping entry from its key and declared base slot.
  */
 export function calculateMappingEntrySlot(key: string, baseSlot: bigint, keyType?: string): bigint {
-  if (typeof key !== 'string' || !key.startsWith('0x')) {
-    throw new Error(`Mapping key "${key}" must be a hex string`)
+  if (typeof key !== 'string') {
+    throw new Error(`Mapping key "${key}" must be a string`)
   }
+
+  const encodedKey = encodeMappingKeyToHex(key, keyType)
 
   if (keyType && /address/.test(keyType)) {
-    return mappingSlot(key as `0x${string}`, baseSlot)
+    return mappingSlot(encodedKey, baseSlot)
   }
 
-  return mappingSlotForValue(key, baseSlot)
+  return mappingSlotForValue(encodedKey, baseSlot, keyType)
 }
 
 /**
