@@ -102,12 +102,27 @@ function ensureHexString(value: string, context: string): `0x${string}` {
 }
 
 function byteLength(hex: `0x${string}`): number {
-  return (hex.length - 2) / 2
+  return hex.slice(2).length / 2
 }
 
 /**
- * Converts a human-readable mapping key into the hex form used for slot hashing.
- * Dynamic string/bytes keys only accept short values so they stay representable as user input.
+ * Normalizes a user-facing mapping key into the exact hex payload expected by the
+ * mapping slot hashing logic.
+ *
+ * The returned value is not always a "plain" representation of the original input:
+ * - numeric, bool, and fixed-bytes keys are converted into their ABI-style 32-byte word
+ *   form so `mappingSlotForValue` can hash them exactly the way Solidity does for
+ *   static mapping key types
+ * - address keys stay as 20-byte address hex because `mappingSlot` already knows how to
+ *   pad them correctly before hashing
+ * - dynamic `string` and dynamic `bytes` keys return their raw byte payload without
+ *   length markers or storage-slot encoding, because Solidity hashes the raw key bytes
+ *   for dynamic mapping keys instead of the normal 32-byte padded static form
+ *
+ * We intentionally reject long dynamic `string`/`bytes` values here. Those keys are
+ * technically valid in Solidity mappings, but this project uses a compact user-input
+ * model for mapping keys and does not want to silently accept arbitrarily large
+ * payloads that are harder to inspect, validate, and round-trip back to text.
  */
 export function encodeMappingKeyToHex(input: string, keyType?: string): `0x${string}` {
   const normalized = normalizeMappingKeyType(keyType)
@@ -118,9 +133,12 @@ export function encodeMappingKeyToHex(input: string, keyType?: string): `0x${str
 
   if (normalized === 'address') {
     const hex = ensureHexString(input, 'Address mapping key')
-    if (byteLength(hex) !== 20) {
-      throw new Error(`Address mapping key must be 20 bytes, got ${byteLength(hex)} bytes`)
+    const length = byteLength(hex)
+
+    if (length !== 20) {
+      throw new Error(`Address mapping key must be 20 bytes, got ${length} bytes`)
     }
+
     return hex
   }
 
@@ -187,8 +205,20 @@ export function encodeMappingKeyToHex(input: string, keyType?: string): `0x${str
 }
 
 /**
- * Converts a stored mapping key hex representation back into a user-facing value.
- * Dynamic string/bytes keys reject long payloads because those are not supported by key input helpers.
+ * Reconstructs a user-facing mapping key from the normalized hex form used internally
+ * by slot hashing helpers.
+ *
+ * This is the inverse of `encodeMappingKeyToHex` for the subset of key formats we
+ * intentionally support:
+ * - ABI-sized integer and bool words are decoded back into readable scalar strings
+ * - fixed-bytes values are trimmed back to their declared byte width
+ * - dynamic `string` and `bytes` are only decoded when the payload is still in the
+ *   "short key" range supported by `encodeMappingKeyToHex`
+ *
+ * The long dynamic-value rejection is deliberate. A 40-byte hex blob could be hashed
+ * as a mapping key in Solidity, but this helper is meant for safe, human-readable
+ * round-tripping of mapping keys in CLI/config workflows, not as a generic decoder for
+ * arbitrary large dynamic payloads.
  */
 export function decodeMappingKeyFromHex(keyHex: `0x${string}`, keyType?: string): string {
   const normalizedHex = ensureHexString(keyHex, 'Mapping key hex')
