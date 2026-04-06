@@ -8,6 +8,8 @@
  * File format: { "variableName": ["0xkey1", "0xkey2", ...] }
  */
 
+import  { readFileSync } from 'node:fs'
+
 /** Mapping keys file format */
 export interface MappingKeysFile {
   [variableName: string]: string[]
@@ -20,7 +22,7 @@ export interface MappingKeysFile {
  * @returns Object mapping variable names to arrays of keys
  */
 export function loadMappingKeys(filePath: string): MappingKeysFile {
-  const { readFileSync } = require('node:fs')
+
   return JSON.parse(readFileSync(filePath, 'utf-8'))
 }
 

@@ -42,6 +42,8 @@ export interface CaptureResult {
   snapshot?: Snapshot
   variableCount: number
   rpcCallsEstimate: number
+  readerCallEstimate: number
+  readerMethod: 'readSlot' | 'readSlots'
 }
 
 /**
@@ -50,17 +52,20 @@ export interface CaptureResult {
 export function dryRunCapture(options: CaptureOptions): CaptureResult {
   const layout = applyOnlyFilter(parseArtifact(options.artifactPath), options.only)
   const variableCount = layout.variables.length
-  const rpcCallsEstimate = new Set(layout.variables.map((variable) => variable.slot.toString())).size
+  const rpcCallsEstimate = estimateReadSlotCalls(layout, options)
+  const readerMethod = rpcCallsEstimate > 1 ? 'readSlots' : 'readSlot'
+  const readerCallEstimate = rpcCallsEstimate > 0 ? 1 : 0
 
   console.log(`Would capture ${variableCount} variables`)
-  console.log(`Estimated RPC calls: ${rpcCallsEstimate}`)
+  console.log(`Estimated storage slot reads: ${rpcCallsEstimate}`)
+  console.log(`Estimated reader plan: ${readerCallEstimate} ${readerMethod} call${readerCallEstimate === 1 ? '' : 's'}`)
   console.log(`Contract: ${options.address} on ${options.chain}`)
   if (options.blockNumber) {
     console.log(`Block: ${options.blockNumber}`)
   }
   console.log(`No reads performed (--dry-run)`)
 
-  return { variableCount, rpcCallsEstimate }
+  return { variableCount, rpcCallsEstimate, readerCallEstimate, readerMethod }
 }
 
 /**
@@ -520,4 +525,82 @@ function shouldExtractPackedValue(variable: {
   }
 
   return /^(t_)?(u?int\d+|address(_payable)?|bool)$/.test(variable.type) || /^t_enum\(.+\)\d+$/.test(variable.type)
+}
+
+function estimateReadSlotCalls(layout: StorageLayout, options: CaptureOptions): number {
+  const uniqueSlots = new Set<string>()
+
+  for (const variable of layout.variables) {
+    estimateVariableReadSlots(
+      {
+        layout,
+        options,
+        blockNum: options.blockNumber,
+        slotCache: new Map(),
+        variable,
+        siblingVariables: layout.variables,
+        path: variable.name,
+        baseSlot: variable.slot,
+      },
+      uniqueSlots
+    )
+  }
+
+  return uniqueSlots.size
+}
+
+function estimateVariableReadSlots(
+  input: CaptureVariableInput,
+  uniqueSlots: Set<string>
+): void {
+  const typeInfo = input.layout.types[input.variable.type]
+
+  if (typeInfo?.encoding === 'mapping') {
+    if (!typeInfo.value) {
+      return
+    }
+
+    const valueType = getTypeInfoOrThrow(input.layout, typeInfo.value)
+    const valueVariable = typeInfoToVariable(typeInfo.value, valueType)
+    const keys = input.options.mappingKeys?.[input.variable.name] ?? []
+
+    for (const key of keys) {
+      const entrySlot = calculateMappingEntrySlot(key, input.baseSlot, typeInfo.key)
+      estimateVariableReadSlots(
+        {
+          ...input,
+          variable: valueVariable,
+          siblingVariables: [valueVariable],
+          path: `${input.path}[${key}]`,
+          baseSlot: entrySlot,
+        },
+        uniqueSlots
+      )
+    }
+
+    return
+  }
+
+  if (typeInfo?.encoding === 'dynamic_array') {
+    uniqueSlots.add(input.baseSlot.toString())
+    return
+  }
+
+  if (typeInfo?.members?.length) {
+    for (const member of typeInfo.members) {
+      estimateVariableReadSlots(
+        {
+          ...input,
+          variable: member,
+          siblingVariables: typeInfo.members,
+          path: `${input.path}.${member.name}`,
+          baseSlot: input.baseSlot + member.slot,
+        },
+        uniqueSlots
+      )
+    }
+    return
+  }
+
+  uniqueSlots.add(input.baseSlot.toString())
 }

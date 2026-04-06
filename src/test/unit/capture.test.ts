@@ -22,7 +22,7 @@ vi.mock('../../core/artifact-parser/normalizer.js', () => ({
   parseArtifact: mockParseArtifact,
 }))
 
-import { captureSnapshot } from '../../core/snapshot/capture.js'
+import { captureSnapshot, dryRunCapture } from '../../core/snapshot/capture.js'
 
 describe('captureSnapshot', () => {
   beforeEach(() => {
@@ -246,6 +246,76 @@ describe('captureSnapshot', () => {
     expect(findEntry(snapshot, 'packedCounterAfterSelector')?.decodedValue).toBe('43707')
     expect(findEntry(snapshot, 'status')?.decodedValue).toBe('2')
     expect(findEntry(snapshot, 'statusCounter')?.decodedValue).toBe('52719')
+  })
+})
+
+describe('dryRunCapture', () => {
+  beforeEach(() => {
+    mockParseArtifact.mockReset()
+  })
+
+  it('estimates unique readSlot calls when multiple variables share the same slot', () => {
+    const layout: StorageLayout = {
+      contractName: 'PackedLayout',
+      variables: [
+        {
+          name: 'paused',
+          type: 't_bool',
+          label: 'bool',
+          slot: 11n,
+          offset: 0,
+          numberOfBytes: 1,
+        },
+        {
+          name: 'counter',
+          type: 't_uint8',
+          label: 'uint8',
+          slot: 11n,
+          offset: 1,
+          numberOfBytes: 1,
+        },
+        {
+          name: 'owner',
+          type: 't_address',
+          label: 'address',
+          slot: 12n,
+          offset: 0,
+          numberOfBytes: 20,
+        },
+      ],
+      types: {
+        t_bool: {
+          encoding: 'inplace',
+          numberOfBytes: 1,
+          label: 'bool',
+        },
+        t_uint8: {
+          encoding: 'inplace',
+          numberOfBytes: 1,
+          label: 'uint8',
+        },
+        t_address: {
+          encoding: 'inplace',
+          numberOfBytes: 20,
+          label: 'address',
+        },
+      },
+    }
+
+    mockParseArtifact.mockReturnValue(layout)
+
+    const result = dryRunCapture({
+      address: '0x0000000000000000000000000000000000000001',
+      artifactPath: './artifact.json',
+      chain: 'mainnet',
+    })
+
+    expect(result).toEqual({
+      variableCount: 3,
+      rpcCallsEstimate: 2,
+      readerCallEstimate: 1,
+      readerMethod: 'readSlots',
+    })
   })
 })
 
