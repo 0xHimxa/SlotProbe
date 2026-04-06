@@ -12,10 +12,21 @@ import { extractPackedValue } from '../storage-engine/packed.js'
 import { parseArtifact } from '../artifact-parser/normalizer.js'
 import { applyOnlyFilter } from './filter.js'
 import { saveSnapshot } from './store.js'
+import { readDynamicBytesOrString } from './storage-decode.js'
+import {
+  calculateMappingEntrySlot,
+  extractExactPackedValue,
+  getSlotsPerValue,
+  getTypeInfoOrThrow,
+  isDynamicBytesOrStringType,
+  isPackedFixedBytes,
+  shouldExtractPackedValue,
+  typeInfoToVariable,
+} from './capture-helpers.js'
 import type { Snapshot, SnapshotEntry } from './types.js'
 import type { StorageLayout, StorageVariable, TypeInfo } from '../artifact-parser/types.js'
 import type { MappingKeysFile } from './mapping-keys.js'
-import { bytesSlot, mappingSlot, mappingSlotForValue } from '../storage-engine/slot-calculator.js'
+import { bytesSlot } from '../storage-engine/slot-calculator.js'
 
 export interface CaptureOptions {
   /** Contract address */
@@ -184,7 +195,7 @@ async function captureLeafEntry(input: CaptureVariableInput): Promise<SnapshotEn
       slotValue,
       input.variable,
       input.baseSlot,
-      input
+      (slot) => getSlotValue(slot, input.options, input.blockNum, input.slotCache)
     )
 
     return {
@@ -341,21 +352,6 @@ async function captureMappingEntries(
 }
 
 /**
- * Calculates the root slot for a mapping entry from its key and declared base slot.
- */
-function calculateMappingEntrySlot(key: string, baseSlot: bigint, keyType?: string): bigint {
-  if (typeof key !== 'string' || !key.startsWith('0x')) {
-    throw new Error(`Mapping key "${key}" must be a hex string`)
-  }
-
-  if (keyType && /address/.test(keyType)) {
-    return mappingSlot(key as `0x${string}`, baseSlot)
-  }
-
-  return mappingSlotForValue(key, baseSlot)
-}
-
-/**
  * Reads a storage slot with memoization so repeated expansions can share the same RPC request.
  */
 async function getSlotValue(
@@ -382,51 +378,6 @@ async function getSlotValue(
 }
 
 /**
- * Decodes Solidity bytes/string storage for both short inline values and long out-of-line payloads.
- */
-async function readDynamicBytesOrString(
-  slotValue: `0x${string}`,
-  variable: { label: string },
-  baseSlot: bigint,
-  context: CaptureContext
-): Promise<string> {
-  const hex = slotValue.slice(2).padStart(64, '0')
-  const marker = parseInt(hex.slice(-2), 16)
-  const isShort = marker % 2 === 0
-  const label = variable.label === 'string' ? 'string' : 'bytes'
-
-  if (isShort) {
-    // Short values encode their length in the low byte and store data inline in the same slot.
-    const length = marker / 2
-    const inlineHex = hex.slice(0, length * 2)
-    return label === 'string'
-      ? Buffer.from(inlineHex, 'hex').toString('utf8')
-      : `0x${inlineHex}`
-  }
-
-  const length = Number((BigInt(slotValue) - 1n) / 2n)
-  const slotCount = Math.ceil(length / 32)
-  let dataHex = ''
-  // Long values store their payload starting at keccak256(baseSlot), chunked 32 bytes per slot.
-  const dataStartSlot = bytesSlot(baseSlot)
-
-  for (let index = 0; index < slotCount; index += 1) {
-    const chunk = await getSlotValue(
-      dataStartSlot + BigInt(index),
-      context.options,
-      context.blockNum,
-      context.slotCache
-    )
-    dataHex += chunk.slice(2)
-  }
-
-  const trimmed = dataHex.slice(0, length * 2)
-  return label === 'string'
-    ? Buffer.from(trimmed, 'hex').toString('utf8')
-    : `0x${trimmed}`
-}
-
-/**
  * Builds a readable placeholder entry when a complex value cannot be expanded safely.
  */
 function createPlaceholderEntry(input: CaptureVariableInput, message: string): SnapshotEntry {
@@ -438,93 +389,6 @@ function createPlaceholderEntry(input: CaptureVariableInput, message: string): S
     rawValue: '0x',
     decodedValue: message,
   }
-}
-
-/**
- * Resolves a type definition from the normalized storage layout and throws on missing metadata.
- */
-function getTypeInfoOrThrow(layout: StorageLayout, typeId: string): TypeInfo {
-  const typeInfo = layout.types[typeId]
-
-  if (!typeInfo) {
-    throw new Error(`Missing storage layout type info for "${typeId}"`)
-  }
-
-  return typeInfo
-}
-
-/**
- * Converts type metadata into a synthetic variable descriptor for recursive decoding.
- */
-function typeInfoToVariable(typeId: string, typeInfo: TypeInfo): StorageVariable {
-  return {
-    name: typeInfo.label,
-    type: typeId,
-    label: typeInfo.label,
-    slot: 0n,
-    offset: 0,
-    numberOfBytes: typeInfo.numberOfBytes,
-  }
-}
-
-/**
- * Returns how many storage slots a single value of this type occupies.
- */
-function getSlotsPerValue(typeInfo: TypeInfo): number {
-  // Arrays of structs may consume multiple slots per element even when the array itself is dynamic.
-  return Math.max(1, Math.ceil(typeInfo.numberOfBytes / 32))
-}
-
-/**
- * Detects dynamic bytes/string labels that need special storage decoding rules.
- */
-function isDynamicBytesOrStringType(variable: { label: string; type: string }): boolean {
-  return variable.label === 'bytes' || variable.label === 'string' || /^(t_)?(bytes|string)$/.test(variable.type)
-}
-
-/**
- * Detects packed fixed-size bytes values, which must preserve their exact extracted byte region.
- */
-
-//New logic check
-function isPackedFixedBytes(
-  variable: { name: string; label: string; slot: bigint; numberOfBytes: number; offset: number },
-  siblingVariables: Array<{ name: string; slot: bigint }>
-): boolean {
-  if (!/^bytes\d+$/.test(variable.label) || variable.numberOfBytes >= 32) {
-    return false
-  }
-
-  if (variable.offset > 0) {
-    return true
-  }
-
-  return siblingVariables.some(
-    (sibling) => sibling.name !== variable.name && sibling.slot === variable.slot
-  )
-}
-
-/**
- * Extracts the exact bytes occupied by a packed value without padding it to a full slot.
- */
-function extractExactPackedValue(rawSlot: string, byteOffset: number, numBytes: number): `0x${string}` {
-  const hex = rawSlot.replace('0x', '').padStart(64, '0')
-  const startByte = 32 - byteOffset - numBytes
-  const startChar = startByte * 2
-  const endChar = startChar + numBytes * 2
-  return `0x${hex.slice(startChar, endChar)}` as `0x${string}`
-}
-
-function shouldExtractPackedValue(variable: {
-  type: string
-  offset: number
-  numberOfBytes: number
-}): boolean {
-  if (variable.numberOfBytes >= 32) {
-    return false
-  }
-
-  return /^(t_)?(u?int\d+|address(_payable)?|bool)$/.test(variable.type) || /^t_enum\(.+\)\d+$/.test(variable.type)
 }
 
 function estimateReadSlotCalls(layout: StorageLayout, options: CaptureOptions): number {

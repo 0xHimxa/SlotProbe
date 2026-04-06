@@ -12,7 +12,7 @@ $$\text{Slot} = \text{keccak256}(\text{ArraySlot}) + \left( \frac{i \times \text
 
 
 
-
+add a helper that convert normal in put to hex
 
 
 
