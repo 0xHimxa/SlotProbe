@@ -61,27 +61,37 @@ export function loadMappingKeys(filePath: string): MappingKeysFile {
 }
 
 /**
- * Validates that all entries in a mapping keys file contain valid hex strings.
+ * Validates that all entries in a mapping keys file are structurally correct.
  *
  * Checks that:
- *   1. Each variable's key list is an array
+ *   1. Each variable's key list is an array (not a string, number, or object)
  *   2. Each key in the array is a string
- *   3. Each key starts with `0x` (hex prefix)
+ *   3. Each key is non-empty
  *
- * Note: This validation is intentionally strict — it requires all keys to be
- * `0x`-prefixed hex. However, the underlying `encodeMappingKeyToHex` function
- * can also accept decimal integers and boolean literals when a key type is
- * provided. Consider relaxing this validation in a future version.
+ * Format-level validation (e.g. correct hex length for addresses, valid integer
+ * ranges for uint keys) is intentionally NOT performed here. That validation
+ * happens inside `encodeMappingKeyToHex` at capture time, where the mapping's
+ * key type is known from the storage layout and can be used to validate the
+ * input precisely.
+ *
+ * Accepted key formats:
+ *   - Hex addresses: `"0xdead...beef"`
+ *   - Decimal integers: `"42"`, `"100"`
+ *   - Boolean literals: `"true"`, `"false"`
+ *   - UTF-8 strings: `"hello"` (for string-keyed mappings)
+ *   - Hex bytes: `"0x1234"` (for bytes-keyed mappings)
  *
  * @param keys - Parsed mapping keys object to validate
  * @returns `{ valid: true }` if all keys pass, or `{ valid: false, errors: [...] }`
  *          with human-readable error messages for each invalid entry
  *
  * @example
- *   const result = validateMappingKeys({ balances: ['0xdead'] })
- *   if (!result.valid) {
- *     console.error(result.errors.join('\n'))
- *   }
+ *   const result = validateMappingKeys({
+ *     balances: ['0xdead...beef'],
+ *     flags: ['true', 'false'],
+ *     scores: ['42', '100'],
+ *   })
+ *   result.valid // true — all formats are accepted
  */
 export function validateMappingKeys(keys: MappingKeysFile): { valid: boolean; errors: string[] } {
   const errors: string[] = []
@@ -97,8 +107,8 @@ export function validateMappingKeys(keys: MappingKeysFile): { valid: boolean; er
         errors.push(`Variable "${variable}": key must be string, got ${typeof key}`)
         continue
       }
-      if (!key.startsWith('0x')) {
-        errors.push(`Variable "${variable}": key must be hex (0x...), got "${key}"`)
+      if (key.trim().length === 0) {
+        errors.push(`Variable "${variable}": key must not be empty`)
       }
     }
   }

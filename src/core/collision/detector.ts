@@ -4,16 +4,19 @@
  * Detects storage slot collisions between two contract versions by
  * comparing their compiled storage layouts byte-by-byte. A collision
  * occurs when a variable in the new layout occupies byte ranges that
- * overlap with a different variable in the old layout at the same slot.
+ * overlap with a DIFFERENT variable in the old layout at the same slot.
  *
  * This is CRITICAL for preventing state corruption during proxy
  * upgrades. Protocols have lost millions of dollars to undetected
  * storage collisions in upgradeable contracts.
  *
- * The detector operates at the structural level — it does not know
- * whether two variables represent the "same" logical field. If you
- * preserve a variable's name, slot, offset, and size, the detector
- * will still flag the overlap because both layouts claim those bytes.
+ * The detector is identity-aware: when a variable in the new layout
+ * has the same name, type, byte offset, and byte size as a variable
+ * in the old layout at the same slot, it is recognised as the same
+ * logical field preserved across versions and excluded from collision
+ * reporting. Only genuinely conflicting overlaps — where a new or
+ * renamed variable stomps on bytes previously owned by a different
+ * variable — are flagged.
  *
  * @module core/collision/detector
  */
@@ -50,12 +53,18 @@ export interface CollisionResult {
 
 /**
  * Detects storage collisions between two contract versions.
- * Checks if any variables in the new contract would overwrite
- * variables from the old contract at the same slot/offset.
- * 
+ *
+ * Walks every variable in `newLayout` and checks whether its byte range
+ * overlaps with any variable in `oldLayout` at the same storage slot.
+ * Variables that are structurally identical across both layouts (same name,
+ * type label, byte offset, and byte size) are treated as the same logical
+ * field and excluded from collision checks — they represent a preserved
+ * variable, not a dangerous overlap.
+ *
  * @param oldLayout - Storage layout of the old contract version
  * @param newLayout - Storage layout of the new contract version
- * @returns Collision detection result
+ * @returns CollisionResult with `hasCollisions` flag, collision details,
+ *          and total variable count
  */
 export function detectCollisions(
   oldLayout: StorageLayout,
@@ -78,6 +87,15 @@ export function detectCollisions(
     if (!oldVars) continue
 
     for (const oldVar of oldVars) {
+      /**
+       * Skip variables that are structurally identical — same name, type,
+       * offset, and size. These represent the SAME logical field preserved
+       * across contract versions, not a dangerous storage collision.
+       */
+      if (isSameVariable(oldVar, newVar)) {
+        continue
+      }
+
       if (isOverlapping(oldVar, newVar)) {
         collisions.push({
           slot: newVar.slot,
@@ -124,6 +142,30 @@ function isOverlapping(
   const bEnd = b.offset + b.numberOfBytes
 
   return aStart < bEnd && bStart < aEnd
+}
+
+/**
+ * Determines whether two variables represent the same logical storage field.
+ *
+ * Two variables are considered identical when they share all four structural
+ * properties: name, human-readable type label, byte offset within the slot,
+ * and byte size. This is used to suppress false-positive collision reports
+ * for variables that were preserved unchanged across contract versions.
+ *
+ * @param a - Variable from the old layout
+ * @param b - Variable from the new layout
+ * @returns `true` if both variables describe the same logical field
+ */
+function isSameVariable(
+  a: { name: string; label: string; offset: number; numberOfBytes: number },
+  b: { name: string; label: string; offset: number; numberOfBytes: number }
+): boolean {
+  return (
+    a.name === b.name &&
+    a.label === b.label &&
+    a.offset === b.offset &&
+    a.numberOfBytes === b.numberOfBytes
+  )
 }
 
 /**
