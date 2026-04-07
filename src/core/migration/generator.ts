@@ -1,8 +1,16 @@
 /**
- * Migration - Generator
- * 
- * Generates migration scripts from diffs.
- * Supports Foundry and Hardhat formats.
+ * Migration — Script Generator
+ *
+ * Generates migration scripts from DiffEntry arrays using Handlebars
+ * templates. Supports both Foundry (Forge Script) and Hardhat (ethers)
+ * output formats. The generated scripts contain setter calls for every
+ * changed or added storage variable, with before/after comments.
+ *
+ * When template files are not found on disk, falls back to inline
+ * templates embedded in this module so the tool works without a full
+ * installation.
+ *
+ * @module core/migration/generator
  */
 
 import Handlebars from 'handlebars'
@@ -20,7 +28,9 @@ export interface GenerateOptions {
 }
 
 /**
- * Register custom Handlebars helpers.
+ * Register the "capitalize" Handlebars helper so templates can use
+ * `{{capitalize name}}` to produce PascalCase setter names like
+ * `setFee`, `setOwner`, etc.
  */
 Handlebars.registerHelper('capitalize', (str: string) => {
   return str.charAt(0).toUpperCase() + str.slice(1)

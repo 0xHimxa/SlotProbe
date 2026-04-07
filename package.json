@@ -1,9 +1,19 @@
 {
-  "name": "Itopa",
+  "name": "slotprobe",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Smart contract state diffing and safe migration tooling for EVM protocols",
+  "main": "./dist/core/index.js",
+  "types": "./dist/core/index.d.ts",
+  "bin": {
+    "slotprobe": "./dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "src/core/migration/templates"
+  ],
   "scripts": {
+    "build": "tsup src/core/index.ts src/cli/index.ts --format esm --dts --outDir dist",
+    "dev": "tsx src/cli/index.ts",
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage"
@@ -12,9 +22,19 @@
     "type": "git",
     "url": "git+https://github.com/0xHimxa/SlotProbe.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "evm",
+    "solidity",
+    "storage",
+    "proxy",
+    "upgrade",
+    "snapshot",
+    "diff",
+    "migration",
+    "web3"
+  ],
+  "author": "0xHimxa",
+  "license": "MIT",
   "type": "module",
   "bugs": {
     "url": "https://github.com/0xHimxa/SlotProbe/issues"

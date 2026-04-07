@@ -1,7 +1,12 @@
 /**
- * Config - Loader
- * 
- * Loads and merges configuration from .SlotProberc.json.
+ * Config — Loader
+ *
+ * Discovers, loads, and merges SlotProbe configuration files. Searches
+ * the current working directory for `.SlotProberc.json`, `.slotprobe.json`,
+ * or `slotprobe.config.json` and validates the contents with the Zod schema.
+ * Missing config files fall back silently to built-in defaults.
+ *
+ * @module config/loader
  */
 
 import { readFileSync, existsSync } from 'node:fs'

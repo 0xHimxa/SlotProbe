@@ -1,0 +1,15 @@
+{
+  "rpc": {
+    "maxConcurrent": 50,
+    "retries": 3,
+    "backoffMs": 1000
+  },
+  "output": "terminal",
+  "chains": {
+    "mainnet": "https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY",
+    "arbitrum": "https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY",
+    "base": "https://base-mainnet.g.alchemy.com/v2/YOUR_KEY",
+    "optimism": "https://opt-mainnet.g.alchemy.com/v2/YOUR_KEY",
+    "polygon": "https://polygon-mainnet.g.alchemy.com/v2/YOUR_KEY"
+  }
+}

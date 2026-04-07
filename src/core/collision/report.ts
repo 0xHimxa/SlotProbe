@@ -1,13 +1,23 @@
 /**
- * Collision - Report
- * 
- * Formats collision detection results for display.
+ * Collision — Report Formatting
+ *
+ * Formats collision detection results for terminal, Markdown,
+ * and CI output. Provides both human-readable and machine-parseable
+ * representations of detected storage slot conflicts.
+ *
+ * @module core/collision/report
  */
 
 import type { CollisionResult, Collision } from './detector.js'
 
 /**
  * Formats a collision report for terminal output.
+ * Shows each collision with slot number, variable names, types,
+ * and byte overlap ranges. Includes a stern "Do not proceed" warning
+ * when collisions are detected.
+ *
+ * @param result - CollisionResult from detectCollisions
+ * @returns Multi-line string for console output
  */
 export function formatCollisionReport(result: CollisionResult): string {
   if (!result.hasCollisions) {
@@ -31,6 +41,9 @@ export function formatCollisionReport(result: CollisionResult): string {
 
 /**
  * Formats a single collision as a Markdown table row.
+ *
+ * @param collision - Individual Collision object
+ * @returns Markdown table row string (pipe-delimited)
  */
 export function formatCollisionMarkdown(collision: Collision): string {
   const cols = [
@@ -44,7 +57,11 @@ export function formatCollisionMarkdown(collision: Collision): string {
 }
 
 /**
- * Generates a Markdown collision report.
+ * Generates a full Markdown collision report with heading,
+ * status, variable count, and optional collision table.
+ *
+ * @param result - CollisionResult from detectCollisions
+ * @returns Multi-line Markdown string
  */
 export function formatCollisionMarkdownReport(result: CollisionResult): string {
   const lines: string[] = [
@@ -71,8 +88,12 @@ export function formatCollisionMarkdownReport(result: CollisionResult): string {
 }
 
 /**
- * Gets exit code based on collision result.
- * 0 = safe, 1 = collisions detected
+ * Returns the appropriate process exit code for a collision result.
+ * 0 = safe (no collisions), 1 = unsafe (collisions detected).
+ * Used by the CLI to communicate results to CI pipelines.
+ *
+ * @param result - CollisionResult from detectCollisions
+ * @returns 0 or 1
  */
 export function getCollisionExitCode(result: CollisionResult): number {
   return result.hasCollisions ? 1 : 0

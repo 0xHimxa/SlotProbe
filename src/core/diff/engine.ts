@@ -1,8 +1,16 @@
 /**
- * Diff - Engine
- * 
- * Core diff logic that compares two snapshots.
- * Works at the semantic level (variable names) not raw slot level.
+ * Diff Engine — Core Comparison Logic
+ *
+ * Compares two contract storage snapshots at the semantic level,
+ * matching variables by name rather than by raw slot number. This
+ * means renamed variables or reordered layouts are handled correctly
+ * as added/removed pairs, while value-level changes are detected
+ * even if the underlying slot moved.
+ *
+ * The diff produces a structured DiffResult that downstream formatters
+ * (terminal, JSON, Markdown) consume for human-readable output.
+ *
+ * @module core/diff/engine
  */
 
 import type { Snapshot } from '../snapshot/types.js'
@@ -10,11 +18,20 @@ import type { DiffEntry, DiffResult, DiffStatus } from './types.js'
 
 /**
  * Compares two snapshots and produces a semantic diff.
- * Variables are matched by name, not by slot number.
- * 
- * @param before - Snapshot taken before the change
- * @param after - Snapshot taken after the change
- * @returns Structured diff result
+ *
+ * Variables are matched by name, not by slot number. For each variable
+ * in the "before" snapshot, the function checks whether a same-named
+ * variable exists in "after" and compares their decoded values using
+ * deep JSON equality. Variables present only in "after" are classified
+ * as "added"; variables present only in "before" are "removed".
+ *
+ * @param before - Snapshot taken before the change (e.g. pre-upgrade)
+ * @param after  - Snapshot taken after the change (e.g. post-upgrade)
+ * @returns Structured DiffResult with entries and summary counts
+ *
+ * @example
+ *   const diff = diffSnapshots(beforeSnapshot, afterSnapshot)
+ *   console.log(diff.summary) // { changed: 2, added: 0, removed: 0, unchanged: 5 }
  */
 export function diffSnapshots(before: Snapshot, after: Snapshot): DiffResult {
   const entries: DiffEntry[] = []
@@ -81,7 +98,11 @@ export function diffSnapshots(before: Snapshot, after: Snapshot): DiffResult {
 }
 
 /**
- * Filters diff entries by status.
+ * Filters diff entries by one or more status values.
+ *
+ * @param entries - Full array of DiffEntry objects
+ * @param filter  - Filter criteria: which statuses to keep, whether to include unchanged entries
+ * @returns Filtered subset of diff entries
  */
 export function filterDiffEntries(
   entries: DiffEntry[],
@@ -102,14 +123,22 @@ export function filterDiffEntries(
 }
 
 /**
- * Gets only the changed entries (changed, added, removed).
+ * Returns only entries that represent actual changes (changed, added, removed).
+ * Excludes unchanged entries.
+ *
+ * @param diff - Complete DiffResult from diffSnapshots
+ * @returns Array of DiffEntry objects with non-unchanged status
  */
 export function getChangedEntries(diff: DiffResult): DiffEntry[] {
   return diff.entries.filter((e) => e.status !== 'unchanged')
 }
 
 /**
- * Checks if there are any changes between snapshots.
+ * Checks whether the diff contains any meaningful changes.
+ * Returns true if at least one variable was changed, added, or removed.
+ *
+ * @param diff - Complete DiffResult from diffSnapshots
+ * @returns true if the upgrade introduced any storage changes
  */
 export function hasChanges(diff: DiffResult): boolean {
   return diff.summary.changed > 0 || 

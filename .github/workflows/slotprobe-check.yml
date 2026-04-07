@@ -1,0 +1,43 @@
+# SlotProbe Storage Collision Check
+#
+# Runs automatically on PRs that touch Solidity files.
+# Compares old and new contract storage layouts and fails the PR
+# if any storage slot collisions are detected.
+#
+# Copy this workflow into your own .github/workflows/ directory
+# and update the artifact paths to match your project structure.
+
+name: SlotProbe Storage Check
+
+on:
+  pull_request:
+    paths:
+      - 'src/**/*.sol'
+      - 'contracts/**/*.sol'
+
+jobs:
+  storage-collision-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install SlotProbe
+        run: npm install -g slotprobe
+
+      - name: Build artifacts
+        run: forge build
+
+      - name: Check for storage collisions
+        run: |
+          slotprobe check-collision \
+            ./out/OldContract.sol/OldContract.json \
+            ./out/NewContract.sol/NewContract.json
+        # Exits with code 1 if collision detected — fails the PR check

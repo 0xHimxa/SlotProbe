@@ -1,8 +1,13 @@
 /**
- * RPC Batching with Concurrency Control
- * 
- * Manages concurrent RPC calls to avoid rate limiting.
- * Uses p-limit to control how many requests run simultaneously.
+ * RPC Batching — Concurrency Control
+ *
+ * Manages concurrent RPC calls to avoid overwhelming public or private
+ * RPC providers with too many simultaneous requests. Uses p-limit to
+ * enforce a configurable ceiling on in-flight requests. The default
+ * floor is 50 concurrent reads, which balances throughput against
+ * provider rate limits for typical Alchemy / Infura plans.
+ *
+ * @module rpc/batch
  */
 
 import pLimit from 'p-limit'
@@ -30,8 +35,21 @@ function normalizeConcurrency(maxConcurrent: number): number {
   )
 }
 /**
- * Creates a batched reader that limits concurrent RPC operations.
- * Prevents hitting rate limits on public RPC providers.
+ * Creates a concurrency-limited batch reader.
+ *
+ * Returns an async function that accepts an array of thunks (factory
+ * functions returning promises) and runs them in parallel up to the
+ * configured limit. Requests beyond the limit queue automatically.
+ *
+ * @param config - Batch configuration with maxConcurrent setting
+ * @returns An async batchRead function
+ *
+ * @example
+ *   const batch = createBatcher({ maxConcurrent: 10 })
+ *   const results = await batch([
+ *     () => readSlot(addr, 0n, 'mainnet'),
+ *     () => readSlot(addr, 1n, 'mainnet'),
+ *   ])
  */
 export function createBatcher(config: BatchConfig = { maxConcurrent: MIN_BATCH_CONCURRENCY }) {
   const limit = pLimit(normalizeConcurrency(config.maxConcurrent))

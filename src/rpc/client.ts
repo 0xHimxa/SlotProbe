@@ -1,9 +1,15 @@
 /**
  * RPC Client Factory
- * 
- * Creates viem public clients for different EVM chains.
- * Used by the storage engine to read contract storage via eth_getStorageAt.
- * Supports mainnet, arbitrum, base, optimism, and polygon out of the box.
+ *
+ * Creates viem public clients for different EVM chains. These clients
+ * are used by the storage engine to read contract storage via the
+ * `eth_getStorageAt` JSON-RPC method. Each client is configured with
+ * multicall batching to reduce the number of HTTP round-trips.
+ *
+ * Supported chains: Ethereum mainnet, Arbitrum, Base, Optimism, Polygon.
+ * Add custom chains by extending the CHAINS constant.
+ *
+ * @module rpc/client
  */
 
 import { createPublicClient, http, type Chain } from 'viem'
@@ -20,7 +26,19 @@ export const CHAIN_CONFIG: Record<SupportedChain, Chain> = CHAINS
 
 /**
  * Creates a viem public client for the specified chain.
- * Falls back to the chain's default public RPC if no custom RPC URL provided.
+ *
+ * The client is configured with multicall batching for efficient bulk
+ * reads and falls back to the chain's default public RPC if no custom
+ * URL is provided. Public RPCs have rate limits — for production use,
+ * supply a private RPC URL from Alchemy, Infura, or similar.
+ *
+ * @param chain  - One of the supported chain names
+ * @param rpcUrl - Optional custom RPC URL (overrides default)
+ * @returns A viem PublicClient configured for the target chain
+ *
+ * @example
+ *   const client = getClient('mainnet')
+ *   const storageValue = await client.getStorageAt({ address, slot })
  */
 export function getClient(chain: SupportedChain, rpcUrl?: string) {
   const chainConfig = CHAINS[chain]

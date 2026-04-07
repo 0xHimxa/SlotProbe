@@ -1,13 +1,22 @@
 /**
- * Diff - Semantic
- * 
- * Semantic diff operations for human-readable output.
+ * Diff — Semantic Helpers
+ *
+ * Utility functions that operate on DiffResult objects to produce
+ * human-readable summaries, extract changed variable names, and
+ * format individual entries as readable strings. These are used by
+ * both the CLI formatters and integration tests.
+ *
+ * @module core/diff/semantic
  */
 
 import type { DiffEntry, DiffResult } from './types.js'
 
 /**
- * Generates a human-readable diff summary.
+ * Generates a comma-separated summary string listing non-zero
+ * change categories (e.g. "2 changed, 1 added, 5 unchanged").
+ *
+ * @param diff - Complete DiffResult from diffSnapshots
+ * @returns Human-readable summary string
  */
 export function formatDiffSummary(diff: DiffResult): string {
   const parts: string[] = []
@@ -29,7 +38,10 @@ export function formatDiffSummary(diff: DiffResult): string {
 }
 
 /**
- * Gets all changed variable names.
+ * Extracts the names of all variables that were changed, added, or removed.
+ *
+ * @param diff - Complete DiffResult from diffSnapshots
+ * @returns Array of variable name strings
  */
 export function getChangedVariableNames(diff: DiffResult): string[] {
   return diff.entries
@@ -38,7 +50,12 @@ export function getChangedVariableNames(diff: DiffResult): string[] {
 }
 
 /**
- * Formats a single diff entry as a readable string.
+ * Formats a single DiffEntry as a readable string.
+ * Uses `-` prefix for removals, `+` for additions, and plain indent
+ * for unchanged values.
+ *
+ * @param entry - Individual diff entry
+ * @returns Formatted string (may be multi-line for changed entries)
  */
 export function formatEntry(entry: DiffEntry): string {
   switch (entry.status) {
@@ -54,7 +71,12 @@ export function formatEntry(entry: DiffEntry): string {
 }
 
 /**
- * Gets a quick overview of what changed.
+ * Gets a quick overview of what changed as an array of human-readable
+ * strings. Each string shows the variable name with its before → after
+ * transition. Unchanged variables are excluded.
+ *
+ * @param diff - Complete DiffResult from diffSnapshots
+ * @returns Array of change description strings
  */
 export function getChangeOverview(diff: DiffResult): string[] {
   const overview: string[] = []

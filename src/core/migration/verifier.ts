@@ -1,8 +1,19 @@
 /**
- * Migration - Verifier
- * 
- * Verifies migration scripts against an Anvil fork.
- * Spawns Anvil, runs the migration, and compares snapshots.
+ * Migration — Anvil Fork Verifier
+ *
+ * Verifies that a generated migration script correctly reproduces the
+ * expected post-migration state by executing it against a local Anvil
+ * fork. This is the "trust but verify" step that catches migration
+ * bugs before they reach mainnet.
+ *
+ * Verification flow:
+ *   1. Validate that the script and expected snapshot exist on disk
+ *   2. Spawn an Anvil process forked at the before-snapshot block
+ *   3. Run the migration script via `forge script` against the fork
+ *   4. Compare the actual post-migration state against the expected snapshot
+ *   5. Clean up the Anvil process regardless of outcome
+ *
+ * @module core/migration/verifier
  */
 
 import { execFileSync, spawn } from 'node:child_process'
@@ -159,6 +170,12 @@ export async function verifyMigration(options: VerifyOptions): Promise<VerifyRes
   }
 }
 
+/**
+ * Reads a migration script file from disk.
+ *
+ * @param path - Absolute or relative path to the .sol or .ts file
+ * @returns File contents as a UTF-8 string
+ */
 function readMigrationScript(path: string): string {
   return readFileSync(path, 'utf-8')
 }

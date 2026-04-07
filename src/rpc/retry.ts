@@ -1,8 +1,16 @@
 /**
- * RPC Retry Logic with Exponential Backoff
- * 
- * Wraps RPC calls with automatic retry on failure.
- * Essential for handling network issues and rate limit 429 responses.
+ * RPC Retry Logic — Exponential Backoff
+ *
+ * Wraps RPC calls with automatic retry on transient failures. Essential
+ * for handling HTTP 429 (rate limited), 5xx (server errors), network
+ * timeouts, and connection resets that are common when talking to
+ * public or busy RPC endpoints.
+ *
+ * Uses p-retry under the hood with randomised exponential backoff
+ * to avoid thundering-herd effects when multiple callers retry at
+ * the same time.
+ *
+ * @module rpc/retry
  */
 
 import pRetry from 'p-retry'
@@ -17,8 +25,19 @@ export interface RetryConfig {
 }
 
 /**
- * Wraps an async RPC call with retry logic.
- * Uses exponential backoff between retries.
+ * Wraps an async function with retry logic and exponential backoff.
+ * Only retries on errors classified as "retryable" by `isRetryableError`.
+ *
+ * @param fn     - Async function to execute and possibly retry
+ * @param config - Retry parameters: attempts, initial backoff, max backoff
+ * @returns The resolved value from a successful attempt
+ * @throws The last error if all retry attempts are exhausted
+ *
+ * @example
+ *   const value = await withRetry(
+ *     () => client.getStorageAt({ address, slot }),
+ *     { retries: 3, backoffMs: 1000 }
+ *   )
  */
 export function withRetry<T>(
   fn: () => Promise<T>,
@@ -41,8 +60,16 @@ export function withRetry<T>(
 }
 
 /**
- * Check if an error is a retryable RPC error.
- * 429 (rate limited) and 5xx errors should be retried.
+ * Determines whether a thrown error represents a transient failure
+ * that is worth retrying. Checks for HTTP 429/5xx status codes,
+ * network-level errors (timeouts, resets), and common provider
+ * error strings.
+ *
+ * Non-retryable errors (4xx auth failures, invalid params, etc.)
+ * return false to prevent wasting retry budget on permanent errors.
+ *
+ * @param error - The caught error value (may or may not be an Error instance)
+ * @returns true if the error should trigger a retry
  */
 export function isRetryableError(error: unknown): boolean {
   if (error instanceof Error) {

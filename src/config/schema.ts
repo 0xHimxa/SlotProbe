@@ -1,7 +1,11 @@
 /**
- * Config - Schema
- * 
- * Zod schema for .SlotProberc.json configuration file.
+ * Config — Zod Schema
+ *
+ * Defines the runtime-validated schema for the `.SlotProberc.json`
+ * configuration file. All fields have sensible defaults so the file
+ * is entirely optional — SlotProbe works out of the box with zero config.
+ *
+ * @module config/schema
  */
 
 import { z } from 'zod'

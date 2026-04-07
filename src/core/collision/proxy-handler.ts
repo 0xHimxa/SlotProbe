@@ -1,8 +1,13 @@
 /**
- * Collision - Proxy Handler
- * 
- * Handles proxy pattern detection and special slot considerations.
- * Different proxy patterns use different storage slots.
+ * Collision — Proxy Pattern Handler
+ *
+ * Manages proxy-pattern-aware collision logic by identifying which storage
+ * slots are reserved by common proxy implementations (EIP-1967, Transparent,
+ * UUPS) and excluding them from collision checks. These reserved slots use
+ * pseudo-random positions derived from keccak256 hashes to avoid accidental
+ * overlap with user-defined storage.
+ *
+ * @module core/collision/proxy-handler
  */
 
 /** Known proxy pattern storage slots */
@@ -21,7 +26,12 @@ export const PROXY_SLOTS = {
 export type ProxyPattern = 'eip1967' | 'transparent' | 'uups' | 'custom'
 
 /**
- * Detects the proxy pattern used by a contract.
+ * Detects the proxy pattern used by a contract by inspecting known
+ * proxy-reserved storage slots.
+ *
+ * @param address - Contract address (for future Etherscan lookup)
+ * @param storage - Map of slot hex → value hex from on-chain reads
+ * @returns Detected proxy pattern or null if not a proxy
  */
 export function detectProxyPattern(address: string, storage: Map<string, string>): ProxyPattern | null {
   const eip1967ImplSlot = '0x' + PROXY_SLOTS.EIP1967_IMPL.toString(16).padStart(64, '0')
@@ -39,8 +49,12 @@ export function detectProxyPattern(address: string, storage: Map<string, string>
 }
 
 /**
- * Gets reserved slots for a proxy pattern.
- * These slots should be excluded from collision checks.
+ * Returns the set of storage slots reserved by the given proxy pattern.
+ * These slots store implementation addresses and admin addresses and
+ * should be excluded from collision checks.
+ *
+ * @param pattern - Detected proxy pattern
+ * @returns Array of reserved slot positions as bigint
  */
 export function getReservedSlots(pattern: ProxyPattern): bigint[] {
   switch (pattern) {
@@ -56,7 +70,13 @@ export function getReservedSlots(pattern: ProxyPattern): bigint[] {
 }
 
 /**
- * Filters out proxy-reserved slots from collision check.
+ * Filters out proxy-reserved slots from a variable list before
+ * running collision detection. This prevents false positives from
+ * EIP-1967 implementation/admin slots.
+ *
+ * @param variables - Array of storage variable descriptors
+ * @param pattern   - Detected proxy pattern (or null if not a proxy)
+ * @returns Filtered array with reserved slots removed
  */
 export function excludeProxySlots(
   variables: Array<{ slot: bigint }>,

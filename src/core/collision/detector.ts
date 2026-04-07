@@ -1,8 +1,21 @@
 /**
- * Collision - Detector
- * 
- * Detects storage slot collisions between contract versions.
- * Critical for preventing state corruption during upgrades.
+ * Collision Detector — Storage Slot Overlap Analysis
+ *
+ * Detects storage slot collisions between two contract versions by
+ * comparing their compiled storage layouts byte-by-byte. A collision
+ * occurs when a variable in the new layout occupies byte ranges that
+ * overlap with a different variable in the old layout at the same slot.
+ *
+ * This is CRITICAL for preventing state corruption during proxy
+ * upgrades. Protocols have lost millions of dollars to undetected
+ * storage collisions in upgradeable contracts.
+ *
+ * The detector operates at the structural level — it does not know
+ * whether two variables represent the "same" logical field. If you
+ * preserve a variable's name, slot, offset, and size, the detector
+ * will still flag the overlap because both layouts claim those bytes.
+ *
+ * @module core/collision/detector
  */
 
 import type { StorageLayout } from '../artifact-parser/types.js'
@@ -93,7 +106,13 @@ export function detectCollisions(
 }
 
 /**
- * Checks if two variables overlap in storage.
+ * Checks if two variables overlap in byte ranges within a shared slot.
+ * Uses standard interval overlap logic: two intervals [aStart, aEnd)
+ * and [bStart, bEnd) overlap iff aStart < bEnd AND bStart < aEnd.
+ *
+ * @param a - First variable's offset and size
+ * @param b - Second variable's offset and size
+ * @returns true if the byte ranges overlap
  */
 function isOverlapping(
   a: { offset: number; numberOfBytes: number },
@@ -108,7 +127,10 @@ function isOverlapping(
 }
 
 /**
- * Checks if an upgrade is safe (no collisions).
+ * Convenience wrapper that returns true when the upgrade is safe.
+ *
+ * @param result - CollisionResult from detectCollisions
+ * @returns true if no collisions were detected
  */
 export function isUpgradeSafe(result: CollisionResult): boolean {
   return !result.hasCollisions

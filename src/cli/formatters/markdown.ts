@@ -1,15 +1,29 @@
 /**
- * CLI Formatters - Markdown
- * 
- * Formats output as Markdown.
- * Used for GitHub PR descriptions.
+ * CLI Formatters — Markdown
+ *
+ * Formats diff and collision results as Markdown text.
+ * The Markdown output is designed to paste directly into a GitHub PR
+ * description or issue comment as a storage change audit table.
+ *
+ * @module cli/formatters/markdown
  */
 
 import type { DiffResult } from '../../core/diff/types.js'
 import type { CollisionResult } from '../../core/collision/detector.js'
 
 /**
- * Formats a diff result as a Markdown table.
+ * Formats a DiffResult as a Markdown table.
+ *
+ * Unchanged variables are excluded from the table to keep it concise.
+ * Each row shows the variable name, Solidity type, before/after values,
+ * and a status badge (Changed, Added, or Removed).
+ *
+ * @param diff - Structured diff result from `diffSnapshots`
+ * @returns Multi-line Markdown string with table and summary
+ *
+ * @example
+ *   const md = formatDiffMarkdown(diff)
+ *   // Paste into a GitHub PR description
  */
 export function formatDiffMarkdown(diff: DiffResult): string {
   const lines: string[] = []
@@ -49,7 +63,18 @@ export function formatDiffMarkdown(diff: DiffResult): string {
 }
 
 /**
- * Formats a collision result as Markdown.
+ * Formats a CollisionResult as a Markdown report.
+ *
+ * When collisions are detected, the output includes a table listing
+ * each conflicting slot with the old and new variable names and types.
+ * When no collisions are found, the report confirms a safe upgrade.
+ *
+ * @param result - Structured collision detection result
+ * @returns Multi-line Markdown string with status and optional collision table
+ *
+ * @example
+ *   const md = formatCollisionMarkdown(result)
+ *   // Post as a GitHub Actions check annotation
  */
 export function formatCollisionMarkdown(result: CollisionResult): string {
   const lines: string[] = []
