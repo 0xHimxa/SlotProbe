@@ -1,24 +1,43 @@
 /**
- * Storage Engine - Slot Reader
- * 
- * Core component for reading raw EVM storage slots.
- * Wraps viem's getStorageAt with retry logic and error handling.
- * 
- * This is the foundation of SlotProbe - everything else builds on this.
+ * Storage Engine — Slot Reader
+ *
+ * The lowest-level module in SlotProbe. Everything else — snapshot capture,
+ * diff, collision detection — ultimately reads contract state through this
+ * module's `readSlot` and `readSlots` functions.
+ *
+ * Each read calls `eth_getStorageAt` via a viem public client and wraps
+ * the call in `withRetry` to survive 429/5xx rate-limit responses.
+ * Bulk reads use `createBatcher` to cap concurrency so large storage
+ * layouts don't overwhelm the RPC provider.
+ *
+ * Every returned value is a 66-character hex string (`0x` + 64 hex digits)
+ * representing the raw 32-byte word stored at that slot.
+ *
+ * @module core/storage-engine/reader
  */
 
 import { createBatcher, getClient, type SupportedChain, withRetry } from '../../rpc/index.js'
 import { isRetryableError } from '../../rpc/retry.js'
 
 /**
- * Reads a single storage slot from a contract.
- * 
- * @param address - Contract address (checksummed)
- * @param slot - Slot number (bigint for large slot numbers)
- * @param chain - Target chain
- * @param blockNumber - Optional block number for historical reads
- * @param rpcUrl - Optional custom RPC URL
- * @returns Raw 32-byte storage value as hex string
+ * Reads a single storage slot from a deployed contract.
+ *
+ * Internally calls `eth_getStorageAt` with automatic retry on transient
+ * network/rate-limit failures. If the slot has never been written to,
+ * the RPC returns `null` and this function normalises it to the zero
+ * slot (`0x000...000`) so callers always receive a valid 32-byte hex.
+ *
+ * @param address     - Checksummed contract address (`0x`-prefixed, 42 chars)
+ * @param slot        - Storage slot position as bigint (supports all 2²⁵⁶ slots)
+ * @param chain       - Target chain name (`mainnet`, `arbitrum`, etc.)
+ * @param blockNumber - Optional historical block for time-travel reads
+ * @param rpcUrl      - Optional RPC endpoint override (bypasses chain default)
+ * @returns            Raw 32-byte storage value as `0x`-prefixed hex string
+ * @throws             Wraps non-retryable errors with a descriptive context message
+ *
+ * @example
+ *   const value = await readSlot('0xA0b8...C4C4', 0n, 'mainnet')
+ *   // '0x0000000000000000000000000000000000000000000000000de0b6b3a7640000'
  */
 export async function readSlot(
   address: `0x${string}`,
@@ -53,16 +72,27 @@ export async function readSlot(
 }
 
 /**
- * Reads multiple storage slots in parallel.
- * More efficient than reading one by one for bulk operations.
- * 
- * @param address - Contract address
- * @param slots - Array of slot numbers to read
- * @param chain - Target chain
- * @param blockNumber - Optional block number for historical reads
- * @param rpcUrl - Optional custom RPC URL
- * @param concurrency - Max concurrent reads (default: 50)
- * @returns Map of slot number to value
+ * Reads multiple storage slots in parallel with concurrency control.
+ *
+ * Deduplicates the slot list first (via string-based Set) so shared-slot
+ * packed variables don't trigger redundant RPC calls. Each unique slot
+ * is dispatched through the `createBatcher` concurrency limiter, which
+ * caps in-flight requests to avoid 429 responses from rate-limited RPCs.
+ *
+ * Returns a Map keyed by bigint slot number so callers can look up any
+ * slot's value in O(1) after the batch completes.
+ *
+ * @param address     - Checksummed contract address
+ * @param slots       - Array of slot positions (duplicates are automatically merged)
+ * @param chain       - Target chain name
+ * @param blockNumber - Optional historical block for time-travel reads
+ * @param rpcUrl      - Optional RPC endpoint override
+ * @param concurrency - Maximum concurrent RPC calls (default: 50, max: 400)
+ * @returns            Map of slot → raw 32-byte hex value
+ *
+ * @example
+ *   const values = await readSlots('0xA0b8...', [0n, 1n, 2n], 'mainnet')
+ *   values.get(0n) // '0x000...064' (totalSupply = 100)
  */
 export async function readSlots(
   address: `0x${string}`,

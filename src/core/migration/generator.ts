@@ -88,7 +88,21 @@ export function generateMigrationScript(
 }
 
 /**
- * Inline fallback templates if files aren't found.
+ * Returns an inline Handlebars template string for the given migration format.
+ *
+ * These templates are embedded directly in the source code as a fallback for
+ * environments where the external `.hbs` template files under `./templates/`
+ * are not available (e.g. when running from a bundled distribution or when
+ * the templates directory was not included in the install).
+ *
+ * Each template produces a runnable script skeleton with:
+ *   - A contract address constant
+ *   - A block of TODO comments, one per changed variable, showing the
+ *     before → after values so the developer can write the setter calls
+ *
+ * @param format - Migration target framework (`'foundry'` for Forge Script,
+ *                 `'hardhat'` for ethers-based deploy script)
+ * @returns Handlebars template string ready for `Handlebars.compile()`
  */
 function getInlineTemplate(format: MigrationFormat): string {
   if (format === 'foundry') {

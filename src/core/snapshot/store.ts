@@ -1,22 +1,42 @@
 /**
- * Snapshot - Store
- * 
- * Handles reading and writing snapshot JSON files.
- * Includes bigint-safe serialization since JSON.stringify doesn't handle bigint.
+ * Snapshot — Store (Read / Write / Validate)
+ *
+ * Handles serialisation and deserialisation of snapshot JSON files.
+ * The main challenge is that JavaScript's `JSON.stringify` does not
+ * natively support `bigint` values, which appear in slot numbers and
+ * decoded integer values. This module uses a marker-based encoding
+ * scheme to ensure lossless round-tripping of bigint fields:
+ *
+ *   Serialisation: `bigint` → `"__bigint__<decimal>"`
+ *   Deserialisation: `"__bigint__<decimal>"` → `BigInt(<decimal>)`
+ *
+ * The marker pattern is intentionally distinctive so it won't collide
+ * with real string values in decoded storage data.
+ *
+ * @module core/snapshot/store
  */
 
 import { writeFileSync, readFileSync } from 'node:fs'
 import type { Snapshot } from './types.js'
 
+/** Marker prefix used to encode bigint values in JSON strings */
 const BIGINT_MARKER = '__bigint__'
+
+/** Regex pattern that matches encoded bigint markers in raw JSON text */
 const BIGINT_PATTERN = new RegExp(`"${BIGINT_MARKER}(-?\\d+)"`, 'g')
 
 /**
- * Saves a snapshot to a JSON file.
- * Handles bigint serialization using a marker pattern.
- * 
- * @param snapshot - Snapshot to save
- * @param path - Output file path
+ * Saves a snapshot to a JSON file on disk.
+ *
+ * Uses a custom JSON replacer to convert `bigint` values into marker
+ * strings, ensuring the output is valid JSON. The file is written with
+ * 2-space indentation for readability.
+ *
+ * @param snapshot - The snapshot object to persist
+ * @param path     - Output file path (created or overwritten)
+ *
+ * @example
+ *   saveSnapshot(snapshot, './snapshots/before.json')
  */
 export function saveSnapshot(snapshot: Snapshot, path: string): void {
   const json = JSON.stringify(snapshot, (key, value) => {
@@ -30,11 +50,19 @@ export function saveSnapshot(snapshot: Snapshot, path: string): void {
 }
 
 /**
- * Loads a snapshot from a JSON file.
- * Restores bigint values from the marker pattern.
- * 
- * @param path - Path to snapshot file
- * @returns Parsed snapshot
+ * Loads a snapshot from a JSON file on disk.
+ *
+ * Uses a custom JSON reviver to restore `bigint` values from their
+ * marker-encoded string form. All other values pass through unchanged.
+ *
+ * @param path - Path to the snapshot JSON file
+ * @returns Parsed Snapshot object with restored bigint fields
+ * @throws  If the file does not exist, is not valid JSON, or contains
+ *          malformed bigint markers
+ *
+ * @example
+ *   const snap = loadSnapshot('./snapshots/before.json')
+ *   console.log(snap.contractName) // 'Token'
  */
 export function loadSnapshot(path: string): Snapshot {
   const raw = JSON.parse(readFileSync(path, 'utf-8'), (key, value) => {
@@ -48,7 +76,23 @@ export function loadSnapshot(path: string): Snapshot {
 }
 
 /**
- * Validates that a file is a valid snapshot.
+ * Validates that a file on disk is a structurally valid snapshot by
+ * loading it and checking for required top-level fields.
+ *
+ * This is a lightweight structural check — it does not validate the
+ * Zod schema or verify that variable entries are well-formed. It
+ * catches the most common issues: missing schemaVersion, missing
+ * address, missing chain, and missing variables array.
+ *
+ * @param path - Path to the snapshot file to validate
+ * @returns `{ valid: true }` on success, or `{ valid: false, error: string }`
+ *          with a human-readable explanation of the first problem found
+ *
+ * @example
+ *   const check = validateSnapshotFile('./before.json')
+ *   if (!check.valid) {
+ *     console.error(`Invalid snapshot: ${check.error}`)
+ *   }
  */
 export function validateSnapshotFile(path: string): { valid: boolean; error?: string } {
   try {

@@ -1,58 +1,95 @@
 /**
- * Diff - Types
- * 
- * Defines types for the diff engine.
- * Diff compares two snapshots and produces a structured result.
+ * Diff — Type Definitions
+ *
+ * Defines the data structures used by the diff engine and all
+ * downstream consumers (formatters, migration generator, CLI commands).
+ *
+ * A DiffResult captures the complete semantic comparison between two
+ * snapshots: which variables changed, were added, or were removed,
+ * along with their before/after values and summary statistics.
+ *
+ * @module core/diff/types
  */
 
-/** Status of a variable between snapshots */
+/**
+ * Classification of a variable's change status between two snapshots.
+ *
+ *   - `'added'`     — Variable exists only in the "after" snapshot
+ *   - `'removed'`   — Variable exists only in the "before" snapshot
+ *   - `'changed'`   — Variable exists in both but with different decoded values
+ *   - `'unchanged'` — Variable exists in both with identical decoded values
+ */
 export type DiffStatus = 'added' | 'removed' | 'changed' | 'unchanged'
 
-/** A single variable diff entry */
+/**
+ * A single variable's diff entry, carrying its status and value(s).
+ *
+ * The `before` and `after` fields are populated based on the status:
+ *   - `changed`:   both `before` and `after` are present
+ *   - `added`:     only `after` is present
+ *   - `removed`:   only `before` is present
+ *   - `unchanged`: only `before` is present (value is identical in both)
+ */
 export interface DiffEntry {
-  /** Variable name */
+  /** Variable path (e.g. `"totalSupply"`, `"config.fee"`, `"balances[0xdead...]"`) */
   name: string
-  /** Solidity type */
+  /** Solidity type label (e.g. `"uint256"`, `"address"`) */
   solidityType: string
-  /** Whether it was added, removed, changed, or unchanged */
+  /** Change classification for this variable */
   status: DiffStatus
-  /** Value before (for changed/removed) */
+  /** Decoded value from the "before" snapshot (present for changed/removed/unchanged) */
   before?: unknown
-  /** Value after (for changed/added) */
+  /** Decoded value from the "after" snapshot (present for changed/added) */
   after?: unknown
 }
 
-/** Complete diff result */
+/**
+ * Complete result of comparing two snapshots.
+ *
+ * Contains all individual diff entries plus metadata about the source
+ * snapshots (addresses, chains, blocks) and a summary of change counts.
+ * This is the primary input for all output formatters and the migration
+ * script generator.
+ */
 export interface DiffResult {
-  /** Contract name */
+  /** Contract name (taken from the "before" snapshot) */
   contractName: string
-  /** Address in snapshot A */
+  /** Contract address in the "before" snapshot */
   addressA: string
-  /** Address in snapshot B */
+  /** Contract address in the "after" snapshot (may differ for cross-deployment diffs) */
   addressB: string
-  /** Chain for snapshot A */
+  /** Chain name for the "before" snapshot */
   chainA: string
-  /** Chain for snapshot B */
+  /** Chain name for the "after" snapshot */
   chainB: string
-  /** Block for snapshot A */
+  /** Block number (decimal string) for the "before" snapshot */
   blockA: string
-  /** Block for snapshot B */
+  /** Block number (decimal string) for the "after" snapshot */
   blockB: string
-  /** All diff entries */
+  /** All diff entries (changed + added + removed + unchanged) */
   entries: DiffEntry[]
-  /** Summary counts */
+  /** Aggregate counts for each status category */
   summary: {
+    /** Number of variables with different values between snapshots */
     changed: number
+    /** Number of variables present only in the "after" snapshot */
     added: number
+    /** Number of variables present only in the "before" snapshot */
     removed: number
+    /** Number of variables with identical values in both snapshots */
     unchanged: number
   }
 }
 
-/** Filter options for diff output */
+/**
+ * Options for filtering diff output.
+ *
+ * Used by the CLI to control which entries appear in the formatted
+ * output (e.g. hide unchanged variables, show only added entries).
+ */
 export interface DiffFilterOptions {
-  /** Show unchanged variables */
+  /** Whether to include unchanged variables in the output (default: false) */
   showUnchanged?: boolean
-  /** Filter by status */
+  /** Show only entries matching these status values (default: show all) */
   status?: DiffStatus[]
 }

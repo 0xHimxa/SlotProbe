@@ -1,32 +1,76 @@
 /**
- * Artifact Parser - Hardhat
- * 
- * Parses Hardhat build artifacts to extract storage layout.
- * Requires enabling storageLayout in hardhat.config.ts:
+ * Artifact Parser — Hardhat
+ *
+ * Parses Hardhat build artifacts to extract the storage layout and normalise
+ * it into the unified {@link StorageLayout} schema. Hardhat wraps the
+ * storage layout inside a `storageLayout` field on the artifact JSON,
+ * using the same `storage` + `types` structure as Foundry's raw output.
+ *
+ * Storage layout generation must be enabled in `hardhat.config.ts`:
+ *   ```ts
  *   solidity: {
- *     settings: { outputSelection: { "*": { "*": ["storageLayout"] } } }
+ *     settings: {
+ *       outputSelection: {
+ *         "*": { "*": ["storageLayout"] }
+ *       }
+ *     }
  *   }
- * 
- * Artifact path: artifacts/contracts/ContractName.sol/ContractName.json
+ *   ```
+ *
+ * Artifact path: `artifacts/contracts/<ContractName>.sol/<ContractName>.json`
+ *
+ * The normalisation pipeline is identical to the Foundry parser:
+ *   - String slot numbers → bigint
+ *   - String byte counts → number
+ *   - Compiler type IDs → human-readable labels via the `types` map
+ *   - Struct members recursively normalised
+ *
+ * @module core/artifact-parser/hardhat
  */
 
 import { readFileSync } from 'node:fs'
 import type { StorageLayout, FoundryRawLayout } from './types.js'
 import { StorageLayoutSchema } from './types.js'
 
+/**
+ * Shape of a Hardhat build artifact JSON file.
+ *
+ * Unlike Foundry, Hardhat may include a `contractName` field at the top
+ * level, and its `bytecode` (when present) is either a flat hex string
+ * or a `{ object: string }` wrapper depending on the Hardhat version.
+ */
 export interface HardhatArtifact {
+  /** Contract name as declared in Solidity (may be absent in some versions) */
   contractName?: string
+  /** Contract ABI array */
   abi: unknown[]
+  /** Compiled bytecode (format varies by Hardhat version) */
   bytecode?: { object: string } | string
+  /** Storage layout data — present only when outputSelection is configured */
   storageLayout?: FoundryRawLayout
 }
 
 /**
- * Parses a Hardhat artifact JSON file and extracts storage layout.
- * 
- * @param artifactPath - Path to Hardhat artifact
- * @returns Normalized StorageLayout object
- * @throws Error if storageLayout not found
+ * Parses a Hardhat artifact JSON file and extracts the normalised
+ * storage layout.
+ *
+ * The function reads the file, extracts the `storageLayout` field, and
+ * normalises all entries (variables + types) into the unified schema.
+ * The contract name is taken from the artifact's `contractName` field
+ * when available, falling back to the filename.
+ *
+ * @param artifactPath - Path to the Hardhat artifact JSON file
+ *                       (typically `artifacts/contracts/Contract.sol/Contract.json`)
+ * @returns Normalised {@link StorageLayout} object with typed fields
+ * @throws  If the artifact is missing the `storageLayout` field, with a
+ *          helpful error message showing the required `hardhat.config.ts`
+ *          configuration
+ * @throws  If the parsed layout fails Zod schema validation
+ *
+ * @example
+ *   const layout = parseHardhatArtifact('./artifacts/contracts/Token.sol/Token.json')
+ *   layout.contractName // 'Token'
+ *   layout.variables[0].slot // 0n (bigint)
  */
 export function parseHardhatArtifact(artifactPath: string): StorageLayout {
   const raw: HardhatArtifact = JSON.parse(readFileSync(artifactPath, 'utf-8'))
@@ -47,6 +91,7 @@ export function parseHardhatArtifact(artifactPath: string): StorageLayout {
 
   const layout = raw.storageLayout
 
+  /** Normalise each storage variable entry: string slots → bigint, string sizes → number */
   const variables = layout.storage.map((v) => {
     const typeInfo = layout.types[v.type]
     return {
@@ -59,6 +104,7 @@ export function parseHardhatArtifact(artifactPath: string): StorageLayout {
     }
   })
 
+  /** Normalise the types map: encoding enum, string sizes → numbers, recursive members */
   const types: Record<string, {
     encoding: 'inplace' | 'mapping' | 'dynamic_array' | 'bytes'
     numberOfBytes: number
@@ -98,6 +144,7 @@ export function parseHardhatArtifact(artifactPath: string): StorageLayout {
     }
   }
 
+  /** Prefer the artifact's own contractName; fall back to filename-based derivation */
   const contractName = raw.contractName ?? artifactPath.split('/').pop()?.replace('.json', '') ?? 'Unknown'
 
   return StorageLayoutSchema.parse({
