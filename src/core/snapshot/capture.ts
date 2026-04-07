@@ -58,7 +58,10 @@ export interface CaptureResult {
 }
 
 /**
- * Performs a dry run to estimate what would be captured.
+ * Builds the same filtered storage layout used by a real capture, but stops before any
+ * RPC/storage reads happen. Instead of returning decoded values, it reports how many
+ * top-level variables would be visited and estimates the slot-read plan that the batch
+ * reader would execute for the current artifact, filters, and mapping keys.
  */
 export function dryRunCapture(options: CaptureOptions): CaptureResult {
   const layout = applyOnlyFilter(parseArtifact(options.artifactPath), options.only)
@@ -80,7 +83,12 @@ export function dryRunCapture(options: CaptureOptions): CaptureResult {
 }
 
 /**
- * Captures a snapshot of contract storage.
+ * Runs the full snapshot pipeline for a contract. The function loads the normalized
+ * storage layout from the artifact, resolves the target block number, then walks every
+ * top-level storage variable and expands it into snapshot entries. Expansion is recursive:
+ * structs are flattened into member paths, arrays into indexed paths, and mappings into
+ * keyed paths when mapping keys are provided. Slot reads are shared through a cache and
+ * batch state so nested expansions do not fetch the same storage slot more than once.
  */
 export async function captureSnapshot(options: CaptureOptions): Promise<Snapshot> {
   const layout = applyOnlyFilter(parseArtifact(options.artifactPath), options.only)
@@ -157,8 +165,11 @@ interface CaptureVariableInput extends CaptureContext {
 }
 
 /**
- * Expands a storage variable into one or more snapshot entries based on its layout encoding.
- * Simple values return a single entry, while structs, mappings, and dynamic arrays recurse.
+ * Acts as the central dispatcher for storage-variable capture. It inspects the variable's
+ * type metadata from the storage layout and decides whether the value should be treated as
+ * a leaf, a struct, a dynamic array, or a mapping. Complex values recurse into dedicated
+ * helpers so the final snapshot stores semantic paths like `config.owner`, `users[alice]`,
+ * or `balances[0]` instead of a single opaque slot dump.
  */
 async function captureVariableEntries(input: CaptureVariableInput): Promise<SnapshotEntry[]> {
   const typeInfo = input.layout.types[input.variable.type]
@@ -180,8 +191,11 @@ async function captureVariableEntries(input: CaptureVariableInput): Promise<Snap
 }
 
 /**
- * Reads and decodes a non-expanded value from storage.
- * This helper also handles dynamic bytes/string payload reads and packed fixed-bytes extraction.
+ * Captures a single non-recursive value from storage. The function first loads the base
+ * slot, then applies the decoding path that matches Solidity's storage rules for that type:
+ * dynamic bytes/string values may require extra reads from hashed data slots, packed
+ * fixed-size bytes must preserve their exact byte window inside a shared slot, and other
+ * packed primitives are sliced out before passing through the generic decoder.
  */
 async function captureLeafEntry(input: CaptureVariableInput): Promise<SnapshotEntry> {
   const slotValue = await getSlotValue(
@@ -242,7 +256,11 @@ async function captureLeafEntry(input: CaptureVariableInput): Promise<SnapshotEn
 }
 
 /**
- * Expands a struct value by resolving each member relative to the struct base slot.
+ * Expands a struct by walking each member from the struct's own base slot. Member slot
+ * offsets in the layout are relative to the struct root, not the contract root, so this
+ * helper rebases each member before handing it back to the generic capture dispatcher.
+ * It also prefetches the member slots up front so nested struct capture benefits from the
+ * shared slot cache instead of issuing one read per member.
  */
 async function captureStructEntries(
   input: CaptureVariableInput,
@@ -276,8 +294,11 @@ async function captureStructEntries(
 }
 
 /**
- * Expands a dynamic array into a synthetic length entry plus entries for each element.
- * Element payload starts at keccak256(baseSlot) and advances by the slot width of the element type.
+ * Expands a Solidity dynamic array into snapshot entries. The array's declared slot stores
+ * its length, so this helper records that length as a synthetic `.length` entry first.
+ * If the array has elements, it computes the data region starting at `keccak256(baseSlot)`,
+ * advances through that region using the element's slot width, prefetches the first slot of
+ * each element, and then recursively captures each indexed element from its computed base slot.
  */
 async function captureDynamicArrayEntries(
   input: CaptureVariableInput,
@@ -341,8 +362,12 @@ async function captureDynamicArrayEntries(
 }
 
 /**
- * Expands a mapping using user-supplied keys.
- * Each key is hashed with the mapping base slot to find the value root before recursing.
+ * Expands a mapping only for keys explicitly supplied by the caller. Because Solidity
+ * mappings do not expose their keys on-chain, the function cannot enumerate them by itself.
+ * For each provided key, it computes the hashed storage root for that mapping entry and then
+ * recurses into the mapped value type, which allows mappings to contain simple values, structs,
+ * arrays, or even nested mappings. When layout metadata or keys are missing, it emits a
+ * placeholder snapshot entry instead of failing silently.
  */
 async function captureMappingEntries(
   input: CaptureVariableInput,
@@ -379,7 +404,9 @@ async function captureMappingEntries(
 }
 
 /**
- * Reads a storage slot with memoization so repeated expansions can share the same RPC request.
+ * Convenience wrapper for callers that only need one slot. It still goes through the shared
+ * multi-slot batching path so single-slot requests participate in the same cache, queue, and
+ * flush cycle as larger reads triggered elsewhere in the capture.
  */
 async function getSlotValue(
   slot: bigint,
@@ -401,6 +428,12 @@ interface SlotBatchState {
   flushPromise?: Promise<void>
 }
 
+/**
+ * Creates the in-memory coordination object used by the slot batcher. The queue tracks which
+ * slots still need to be read, the resolver map connects each requested slot to the promise
+ * waiting for its value, and `flushPromise` prevents multiple concurrent flush loops from
+ * trying to drain the same queue at the same time.
+ */
 function createSlotBatchState(): SlotBatchState {
   return {
     queuedSlots: new Set(),
@@ -408,6 +441,12 @@ function createSlotBatchState(): SlotBatchState {
   }
 }
 
+/**
+ * Normalizes all slot reads through one cache-aware batching layer. For every requested slot,
+ * the function either reuses an existing pending promise from the cache or creates a new one,
+ * registers its resolver in the batch state, and adds the slot to the pending queue. After
+ * flushing the queue, it returns the resolved values in the same order as the original input.
+ */
 async function getSlotValues(
   slots: bigint[],
   options: CaptureOptions,
@@ -440,6 +479,13 @@ async function getSlotValues(
   )
 }
 
+/**
+ * Drains the current queue of pending slot requests by calling the storage reader once per
+ * queued batch. While a flush is running, later callers await the same `flushPromise` instead
+ * of starting another read loop. Each returned slot value resolves the promise stored in the
+ * batch state; missing values or reader failures reject those promises and remove the cache
+ * entries so a future retry can rebuild them cleanly.
+ */
 async function flushQueuedSlots(
   options: CaptureOptions,
   blockNum: bigint | undefined,
@@ -497,7 +543,10 @@ async function flushQueuedSlots(
 }
 
 /**
- * Builds a readable placeholder entry when a complex value cannot be expanded safely.
+ * Produces a snapshot entry that keeps the variable path and type visible even when capture
+ * cannot expand the value meaningfully. This is mainly used for mappings missing key data or
+ * incomplete layout metadata, giving the caller a readable explanation instead of dropping the
+ * variable from the snapshot output entirely.
  */
 function createPlaceholderEntry(input: CaptureVariableInput, message: string): SnapshotEntry {
   return {
@@ -510,6 +559,12 @@ function createPlaceholderEntry(input: CaptureVariableInput, message: string): S
   }
 }
 
+/**
+ * Computes a dry-run estimate of storage access cost. It walks the filtered top-level layout
+ * with the same recursive shape used during real capture, but instead of reading values it adds
+ * each discovered slot to a set of unique addresses. The result is used to explain how many
+ * underlying slot reads the capture is likely to need for the current input options.
+ */
 function estimateReadSlotCalls(layout: StorageLayout, options: CaptureOptions): number {
   const uniqueSlots = new Set<string>()
 
@@ -533,6 +588,13 @@ function estimateReadSlotCalls(layout: StorageLayout, options: CaptureOptions): 
   return uniqueSlots.size
 }
 
+/**
+ * Mirrors the recursive expansion logic used by real capture, but records only slot addresses.
+ * Mappings recurse through user-provided keys, structs recurse through members, dynamic arrays
+ * currently count only their length slot because element slots depend on runtime data, and leaf
+ * values contribute their base slot directly. This gives dry-run mode a structural estimate
+ * without making any network calls or decoding any storage content.
+ */
 function estimateVariableReadSlots(
   input: CaptureVariableInput,
   uniqueSlots: Set<string>
