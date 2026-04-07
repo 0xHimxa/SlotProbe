@@ -143,7 +143,7 @@ describe('Migration Generation Integration', () => {
     expect(script).toBe('')
 
     /** Console output should mention the changes */
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join('\n')
+    const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join('\n')
     expect(output).toContain('fee')
     expect(output).toContain('3000')
     expect(output).toContain('5000')

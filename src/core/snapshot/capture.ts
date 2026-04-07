@@ -835,7 +835,13 @@ async function getSlotValue(
   slotCache: Map<bigint, Promise<`0x${string}`>>,
   slotBatch: SlotBatchState
 ): Promise<`0x${string}`> {
-  const [value] = await getSlotValues([slot], options, blockNum, slotCache, slotBatch)
+  const values = await getSlotValues([slot], options, blockNum, slotCache, slotBatch)
+  const value = values[0]
+
+  if (!value) {
+    throw new Error(`Missing slot value for slot ${slot.toString()}`)
+  }
+
   return value
 }
 
