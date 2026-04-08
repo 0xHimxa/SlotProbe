@@ -4,11 +4,6 @@
 
 $$\text{Slot} = \text{keccak256}(\text{ArraySlot}) + \left( \frac{i \times \text{sizeOf(Type)}}{256} \right)$$
 
- need to undo captue to it pev logic
-
-
-
-add a helper that convert normal in put to hex
 
 
 
