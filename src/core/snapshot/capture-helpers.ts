@@ -217,3 +217,82 @@ export function shouldExtractPackedValue(variable: {
 
   return /^(t_)?(u?int\d+|address(_payable)?|bool)$/.test(variable.type) || /^t_enum\(.+\)\d+$/.test(variable.type)
 }
+
+/**
+ * Detects whether a type represents a fixed-length (compile-time-sized) array.
+ *
+ * Fixed-length arrays in Solidity (e.g. `uint256[5]`, `address[3]`) are stored
+ * `inplace` — elements are laid out contiguously starting at the declared base
+ * slot, with NO keccak256 indirection and NO length slot. This is fundamentally
+ * different from dynamic arrays (`encoding: 'dynamic_array'`), which store
+ * length at the base slot and data at `keccak256(baseSlot)`.
+ *
+ * Detection heuristic: a type is a fixed-length array when it has:
+ *   - `encoding === 'inplace'` (stored directly, not hashed)
+ *   - A `base` field (references the element type — only arrays have this)
+ *   - No `members` array (structs also use `inplace` but have `members`)
+ *
+ * In the Foundry/Hardhat artifact, a fixed-length array like `uint256[5]`
+ * produces a type entry such as:
+ *   ```json
+ *   {
+ *     "encoding": "inplace",
+ *     "label": "uint256[5]",
+ *     "numberOfBytes": "160",
+ *     "base": "t_uint256"
+ *   }
+ *   ```
+ *
+ * @param typeInfo - Type metadata to inspect (may be `undefined` for unknown types)
+ * @returns `true` if the type is a fixed-length array
+ */
+export function isFixedLengthArray(typeInfo?: TypeInfo): boolean {
+  if (!typeInfo) return false
+  return (
+    typeInfo.encoding === 'inplace' &&
+    typeof typeInfo.base === 'string' &&
+    !typeInfo.members?.length
+  )
+}
+
+/**
+ * Derives the compile-time element count of a fixed-length array from its
+ * total byte size and the element type's byte size.
+ *
+ * Solidity fixed-length arrays have a known size at compile time, encoded
+ * in the `numberOfBytes` field of the type metadata. The element count is
+ * simply `totalBytes / elementBytes`. For example:
+ *   - `uint256[5]` → numberOfBytes=160, element=32 → length=5
+ *   - `address[3]` → numberOfBytes=96, element=32 → length=3
+ *   - `bool[10]`   → numberOfBytes=32, element=32 → length=1 (packed into 1 slot)
+ *
+ * Note: Solidity does NOT pack fixed-array elements smaller than 32 bytes
+ * across slot boundaries. Each element occupies at least one full slot
+ * (unless the element type itself is < 32 bytes, in which case multiple
+ * elements CAN share a slot — but `numberOfBytes` on the array type still
+ * reflects the total storage footprint). The stride calculation uses
+ * `getSlotsPerValue` which handles this correctly.
+ *
+ * @param arrayTypeInfo   - Type metadata for the fixed-length array itself
+ * @param elementTypeInfo - Type metadata for a single element
+ * @returns The number of elements in the array
+ * @throws  If the element size is zero (would cause division by zero)
+ */
+export function getFixedArrayLength(arrayTypeInfo: TypeInfo, elementTypeInfo: TypeInfo): number {
+  if (elementTypeInfo.numberOfBytes === 0) {
+    throw new Error('Fixed-length array element type has zero byte size')
+  }
+
+  /**
+   * For sub-32-byte elements, Solidity packs multiple elements per slot.
+   * The stride is max(1, ceil(elementBytes / 32)) slots per element,
+   * but the total array size in bytes already accounts for the full
+   * storage footprint. We compute element count from bytes, not slots.
+   *
+   * However, when elements are smaller than a slot (e.g. uint128[4]),
+   * they are packed. The numberOfBytes of the array reflects the actual
+   * slots used × 32. So for uint128[4] → 2 slots → 64 bytes, and
+   * elementBytes = 16. 64 / 16 = 4 elements. This works correctly.
+   */
+  return Math.floor(arrayTypeInfo.numberOfBytes / elementTypeInfo.numberOfBytes)
+}

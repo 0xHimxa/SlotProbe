@@ -130,7 +130,7 @@ function isDynamicMappingKeyType(keyType?: string): boolean {
  * Parses the bit-width from an integer type label string.
  *
  * Bare `uint` / `int` labels default to 256 bits per the Solidity spec.
- * Explicit widths are validated against Solidity's rules: must be 8–256
+ * Explicit widths are validated against Solidity's rules: must be 8-256
  * inclusive and divisible by 8.
  *
  * @param typeLabel - Normalised integer label (e.g. `uint128`, `int`, `uint256`)
@@ -530,7 +530,7 @@ export function structMemberSlot(
  * needed for packed struct members that share a slot with neighbours.
  *
  * @param memberOffset - Cumulative byte offset of the member within the struct
- * @returns Byte offset within the slot (0–31)
+ * @returns Byte offset within the slot (0-31)
  *
  * @example
  *   structMemberByteOffset(52) // 20 (52 mod 32 = 20 bytes into the slot)

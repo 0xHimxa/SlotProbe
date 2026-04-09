@@ -23,6 +23,7 @@
  *        - `captureLeafEntry` → scalars, addresses, booleans, fixed-bytes
  *        - `captureStructEntries` → struct members (recursive)
  *        - `captureDynamicArrayEntries` → dynamic array elements (recursive)
+ *        - `captureFixedArrayEntries` → fixed-length array elements (recursive)
  *        - `captureMappingEntries` → mapping entries by user-supplied keys (recursive)
  *
  *   3. **I/O Layer** — `getSlotValue`, `getSlotValues`, and `flushQueuedSlots`
@@ -89,9 +90,11 @@ import { readDynamicBytesOrString } from './storage-decode.js'
 import {
   calculateMappingEntrySlot,
   extractExactPackedValue,
+  getFixedArrayLength,
   getSlotsPerValue,
   getTypeInfoOrThrow,
   isDynamicBytesOrStringType,
+  isFixedLengthArray,
   isPackedFixedBytes,
   shouldExtractPackedValue,
   typeInfoToVariable,
@@ -443,12 +446,18 @@ interface CaptureVariableInput extends CaptureContext {
  *      Array length is read from the base slot, then each element is
  *      expanded from the `keccak256(baseSlot)` data region.
  *
- *   3. **Struct** (`typeInfo.members?.length > 0`) → `captureStructEntries`
+ *   3. **Fixed-length array** (`encoding === 'inplace'` + `base` field) →
+ *      `captureFixedArrayEntries`
+ *      Elements are stored contiguously starting at the declared base slot
+ *      with NO keccak256 indirection. Length is compile-time constant,
+ *      derived from `numberOfBytes / elementSize`.
+ *
+ *   4. **Struct** (`typeInfo.members?.length > 0`) → `captureStructEntries`
  *      Structs are identified by the presence of member descriptors rather
  *      than by encoding, because nested structs within arrays or mappings
  *      may have `encoding: 'inplace'` but still need member expansion.
  *
- *   4. **Leaf** (everything else) → `captureLeafEntry`
+ *   5. **Leaf** (everything else) → `captureLeafEntry`
  *      Scalars, addresses, booleans, enums, fixed-bytes, and dynamic
  *      bytes/string types all resolve to a single snapshot entry.
  *
@@ -464,6 +473,25 @@ async function captureVariableEntries(input: CaptureVariableInput): Promise<Snap
 
   if (typeInfo?.encoding === 'dynamic_array') {
     return captureDynamicArrayEntries(input, typeInfo)
+  }
+
+  /**
+   * Fixed-length array check — MUST come before the struct check.
+   *
+   * Both fixed-length arrays and structs have `encoding: 'inplace'`, but
+   * fixed arrays have a `base` field (element type) and no `members`,
+   * while structs have `members` and no `base`. The `isFixedLengthArray`
+   * helper encodes this distinction.
+   *
+   * Example artifact entry for `uint256[5]`:
+   *   { encoding: 'inplace', numberOfBytes: 160, base: 't_uint256' }
+   *
+   * Without this check, fixed-length arrays would fall through to the
+   * leaf handler and only capture a single slot — completely wrong for
+   * a multi-element array.
+   */
+  if (isFixedLengthArray(typeInfo)) {
+    return captureFixedArrayEntries(input, typeInfo!)
   }
 
   if (typeInfo?.members?.length) {
@@ -733,6 +761,148 @@ async function captureDynamicArrayEntries(
        */
       siblingVariables: [elementVariable],
       path: `${input.path}[${index.toString()}]`,
+      baseSlot: elementBaseSlot,
+    })
+    entries.push(...elementEntries)
+  }
+
+  return entries
+}
+
+/**
+ * Expands a fixed-length (compile-time-sized) array into indexed snapshot entries.
+ *
+ * Fixed-length arrays differ from dynamic arrays in two critical ways:
+ *
+ *   ┌────────────────────┬──────────────────────┬───────────────────────┐
+ *   │                    │   Dynamic Array       │   Fixed-Length Array   │
+ *   ├────────────────────┼──────────────────────┼───────────────────────┤
+ *   │ Length storage     │ Stored at base slot   │ NOT stored on-chain   │
+ *   │                    │ (readable at runtime) │ (compile-time const)  │
+ *   ├────────────────────┼──────────────────────┼───────────────────────┤
+ *   │ Data region        │ keccak256(baseSlot)   │ Starts at baseSlot    │
+ *   │                    │ (hashed indirection)  │ (directly in-place)   │
+ *   ├────────────────────┼──────────────────────┼───────────────────────┤
+ *   │ Encoding           │ 'dynamic_array'       │ 'inplace'             │
+ *   ├────────────────────┼──────────────────────┼───────────────────────┤
+ *   │ Type artifact      │ { base, encode:'dyn'} │ { base, encode:'inp'} │
+ *   └────────────────────┴──────────────────────┴───────────────────────┘
+ *
+ * The capture process:
+ *   1. Resolve the element type from the `base` field in typeInfo
+ *   2. Derive the element count: `arrayTypeInfo.numberOfBytes / elementTypeInfo.numberOfBytes`
+ *      (this is a compile-time constant baked into the artifact)
+ *   3. Compute element stride: `ceil(elementSize / 32)` slots per element
+ *   4. Compute each element's base slot: `baseSlot + index * stride`
+ *      (NO keccak256 — elements sit directly at the declared slots)
+ *   5. Prefetch all element base slots into the cache
+ *   6. Recursively capture each element (may itself be a struct/array/mapping)
+ *
+ * @param input    - Capture context positioned at the array's base slot
+ * @param typeInfo - Type metadata containing the `base` (element type) reference
+ *                   and `numberOfBytes` (total array storage footprint)
+ * @returns Array of SnapshotEntry records, one or more per element
+ *
+ * @example
+ *   // For `uint256[3] public prices` at slot 5:
+ *   // Elements at slots: 5, 6, 7 (stride=1, no keccak256)
+ *   // Produces: ['prices[0]', 'prices[1]', 'prices[2]']
+ *
+ * @example
+ *   // For `struct Order { uint64 id; address buyer; }` → 2 slots per element
+ *   // `Order[2] public recentOrders` at slot 10:
+ *   // Elements at slots: 10, 12 (stride=2)
+ *   // Produces: ['recentOrders[0].id', 'recentOrders[0].buyer',
+ *   //            'recentOrders[1].id', 'recentOrders[1].buyer']
+ */
+async function captureFixedArrayEntries(
+  input: CaptureVariableInput,
+  typeInfo: TypeInfo
+): Promise<SnapshotEntry[]> {
+  const entries: SnapshotEntry[] = []
+
+  /**
+   * Step 1: Resolve element type metadata.
+   * The `base` field contains the compiler-internal type ID of each element
+   * (e.g. 't_uint256', 't_struct(Order)28_storage'). This was already
+   * validated by the `isFixedLengthArray` check in the dispatch layer.
+   */
+  if (!typeInfo.base) {
+    return entries
+  }
+
+  const elementType = getTypeInfoOrThrow(input.layout, typeInfo.base)
+
+  /**
+   * Step 2: Derive the compile-time element count.
+   *
+   * Unlike dynamic arrays where we read the length from storage, fixed-length
+   * arrays encode their size in the type metadata. For example:
+   *   - `uint256[5]` → numberOfBytes=160, elementBytes=32 → length=5
+   *   - `uint128[4]` → numberOfBytes=64,  elementBytes=16 → length=4
+   *
+   * This is a pure metadata calculation — no RPC call needed.
+   */
+  const length = getFixedArrayLength(typeInfo, elementType)
+
+  if (length === 0) {
+    return entries
+  }
+
+  /**
+   * Step 3: Compute element stride (slots per element).
+   *
+   * Each element occupies `ceil(elementSize / 32)` slots. For uint256 this
+   * is 1 slot; for a 2-slot struct this is 2 slots. Sub-32-byte elements
+   * (e.g. uint128) still occupy 1 slot each in an array context because
+   * Solidity does NOT pack array elements across slot boundaries — each
+   * element starts at a fresh slot boundary.
+   *
+   * IMPORTANT: Unlike struct members which CAN pack within a slot, array
+   * elements always get their own slot(s). A `uint8[3]` uses 3 full slots,
+   * not 3 bytes packed into 1 slot.
+   */
+  const elementSlots = getSlotsPerValue(elementType)
+
+  /**
+   * Step 4: Compute element base slots.
+   *
+   * Fixed-length array elements start directly at baseSlot (no keccak256).
+   * This is the key difference from dynamic arrays:
+   *   - Dynamic:  data at keccak256(baseSlot) + index * stride
+   *   - Fixed:    data at baseSlot + index * stride
+   */
+  const elementBaseSlots: bigint[] = []
+  for (let index = 0; index < length; index += 1) {
+    elementBaseSlots.push(input.baseSlot + BigInt(index) * BigInt(elementSlots))
+  }
+
+  /** Step 5: Prefetch all element base slots in one batch */
+  await getSlotValues(
+    elementBaseSlots,
+    input.options,
+    input.blockNum,
+    input.slotCache,
+    input.slotBatch
+  )
+
+  /** Step 6: Recursively capture each element */
+  for (let index = 0; index < length; index += 1) {
+    const elementBaseSlot = input.baseSlot + BigInt(index) * BigInt(elementSlots)
+    const elementVariable = typeInfoToVariable(typeInfo.base, elementType)
+    const elementEntries = await captureVariableEntries({
+      ...input,
+      variable: elementVariable,
+      /**
+       * Fixed-array elements are isolated — each lives at its own slot
+       * and does not pack with other elements. A single-element sibling
+       * array means packed-slot detection will correctly return false.
+       *
+       * This is the same sibling strategy used by dynamic arrays and
+       * mapping values — derived slots don't share with each other.
+       */
+      siblingVariables: [elementVariable],
+      path: `${input.path}[${index}]`,
       baseSlot: elementBaseSlot,
     })
     entries.push(...elementEntries)
@@ -1146,6 +1316,34 @@ function estimateVariableReadSlots(
   if (typeInfo?.encoding === 'dynamic_array') {
     /** Only the length slot is countable — element slots need runtime data */
     uniqueSlots.add(input.baseSlot.toString())
+    return
+  }
+
+  /**
+   * Fixed-length array estimation — unlike dynamic arrays, we CAN fully
+   * estimate the slot count because the element count is a compile-time
+   * constant embedded in the type metadata. No runtime data needed.
+   *
+   * Elements are stored contiguously starting at baseSlot (no keccak256),
+   * so element[i] lives at baseSlot + i * stride.
+   */
+  if (isFixedLengthArray(typeInfo)) {
+    const elementType = getTypeInfoOrThrow(input.layout, typeInfo!.base!)
+    const length = getFixedArrayLength(typeInfo!, elementType)
+    const elementSlots = getSlotsPerValue(elementType)
+
+    for (let index = 0; index < length; index += 1) {
+      estimateVariableReadSlots(
+        {
+          ...input,
+          variable: typeInfoToVariable(typeInfo!.base!, elementType),
+          siblingVariables: [typeInfoToVariable(typeInfo!.base!, elementType)],
+          path: `${input.path}[${index}]`,
+          baseSlot: input.baseSlot + BigInt(index) * BigInt(elementSlots),
+        },
+        uniqueSlots
+      )
+    }
     return
   }
 

@@ -258,6 +258,151 @@ describe('captureSnapshot', () => {
     expect(mockReadSlot).not.toHaveBeenCalled()
     expect(mockReadSlots).toHaveBeenCalled()
   })
+
+  it('expands fixed-length arrays with scalar and struct element types', async () => {
+    /**
+     * Layout simulating:
+     *   uint256[3] public prices;    // slot 0 — 3 elements, stride 1
+     *   Order[2]   public recent;    // slot 3 — 2 elements, stride 2 (Order is 2 slots)
+     *
+     * Fixed-length arrays use encoding:'inplace' + a `base` field.
+     * Elements are stored contiguously starting at the declared base slot
+     * (NO keccak256, NO length slot — unlike dynamic arrays).
+     */
+    const layout: StorageLayout = {
+      contractName: 'FixedArrayHarness',
+      variables: [
+        {
+          name: 'prices',
+          type: 't_array(t_uint256)3_storage',
+          label: 'uint256[3]',
+          slot: 0n,
+          offset: 0,
+          numberOfBytes: 96,
+        },
+        {
+          name: 'recent',
+          type: 't_array(t_struct(Order)_storage)2_storage',
+          label: 'struct Order[2]',
+          slot: 3n,
+          offset: 0,
+          numberOfBytes: 128,
+        },
+      ],
+      types: {
+        't_array(t_uint256)3_storage': {
+          encoding: 'inplace',
+          numberOfBytes: 96,
+          label: 'uint256[3]',
+          base: 't_uint256',
+        },
+        't_array(t_struct(Order)_storage)2_storage': {
+          encoding: 'inplace',
+          numberOfBytes: 128,
+          label: 'struct Order[2]',
+          base: 't_struct_order',
+        },
+        t_uint256: {
+          encoding: 'inplace',
+          numberOfBytes: 32,
+          label: 'uint256',
+        },
+        t_uint64: {
+          encoding: 'inplace',
+          numberOfBytes: 8,
+          label: 'uint64',
+        },
+        t_address: {
+          encoding: 'inplace',
+          numberOfBytes: 20,
+          label: 'address',
+        },
+        t_struct_order: {
+          encoding: 'inplace',
+          numberOfBytes: 64,
+          label: 'struct Order',
+          members: [
+            {
+              name: 'id',
+              type: 't_uint64',
+              label: 'uint64',
+              slot: 0n,
+              offset: 0,
+              numberOfBytes: 8,
+            },
+            {
+              name: 'buyer',
+              type: 't_address',
+              label: 'address',
+              slot: 1n,
+              offset: 0,
+              numberOfBytes: 20,
+            },
+          ],
+        },
+      },
+    }
+
+    /**
+     * Slot map:
+     *   slot 0: prices[0] = 100
+     *   slot 1: prices[1] = 200
+     *   slot 2: prices[2] = 300
+     *   slot 3: recent[0].id = 42     (first 8 bytes of slot 3)
+     *   slot 4: recent[0].buyer       (20-byte address)
+     *   slot 5: recent[1].id = 99     (first 8 bytes of slot 5)
+     *   slot 6: recent[1].buyer       (20-byte address)
+     */
+    const buyerA = '0x000000000000000000000000aaaaaaaabbbbbbbbccccccccddddddddeeeeeeee'
+    const buyerB = '0x0000000000000000000000001111111122222222333333334444444455555555'
+
+    const slots = new Map<bigint, `0x${string}`>([
+      [0n, encodeUint(100n)],
+      [1n, encodeUint(200n)],
+      [2n, encodeUint(300n)],
+      [3n, encodeUint(42n)],
+      [4n, buyerA as `0x${string}`],
+      [5n, encodeUint(99n)],
+      [6n, buyerB as `0x${string}`],
+    ])
+
+    mockParseArtifact.mockReturnValue(layout)
+    mockReadSlots.mockImplementation(async (_address: string, requestedSlots: bigint[]) => {
+      const results = new Map<bigint, `0x${string}`>()
+      for (const slot of requestedSlots) {
+        const value = slots.get(slot)
+        if (!value) throw new Error(`unexpected slot read: ${slot.toString()}`)
+        results.set(slot, value)
+      }
+      return results
+    })
+
+    const snapshot = await captureSnapshot({
+      address: '0x0000000000000000000000000000000000000001',
+      artifactPath: './artifact.json',
+      chain: 'mainnet',
+    })
+
+    /** Verify scalar fixed-length array: prices[0..2] */
+    expect(findEntry(snapshot, 'prices[0]')?.decodedValue).toBe('100')
+    expect(findEntry(snapshot, 'prices[1]')?.decodedValue).toBe('200')
+    expect(findEntry(snapshot, 'prices[2]')?.decodedValue).toBe('300')
+
+    /** Verify struct fixed-length array: recent[0..1].id and recent[0..1].buyer */
+    expect(findEntry(snapshot, 'recent[0].id')?.decodedValue).toBe('42')
+    expect(findEntry(snapshot, 'recent[1].id')?.decodedValue).toBe('99')
+
+    /**
+     * Verify NO .length entry is emitted for fixed-length arrays.
+     * Dynamic arrays produce a synthetic '.length' entry, but fixed-length
+     * arrays have no on-chain length slot — the count is compile-time.
+     */
+    expect(findEntry(snapshot, 'prices.length')).toBeUndefined()
+    expect(findEntry(snapshot, 'recent.length')).toBeUndefined()
+
+    expect(mockReadSlot).not.toHaveBeenCalled()
+    expect(mockReadSlots).toHaveBeenCalled()
+  })
 })
 
 describe('dryRunCapture', () => {

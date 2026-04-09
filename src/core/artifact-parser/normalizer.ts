@@ -131,6 +131,7 @@ export function parseArtifact(artifactPath: string): StorageLayout {
  *     process.exit(1)
  *   }
  */
+/* Need to add a  add this to cli so users  can verify easily */
 export function validateArtifact(artifactPath: string): { valid: boolean; error?: string } {
   try {
     const raw = JSON.parse(readFileSync(artifactPath, 'utf-8')) as Record<string, unknown> | FoundryRawLayout

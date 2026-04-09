@@ -67,7 +67,7 @@ export const TypeInfoSchema = z.object({
   key: z.string().optional(),
   /** For mapping types: compiler-internal type of the mapping value */
   value: z.string().optional(),
-  /** For dynamic array types: compiler-internal type of the array element */
+  /** For array types (both dynamic and fixed-length): compiler-internal type of the array element */
   base: z.string().optional(),
 })
 
