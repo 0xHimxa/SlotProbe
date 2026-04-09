@@ -61,7 +61,7 @@
  *
  *   - **Struct members:** siblings = the struct's `typeInfo.members` array.
  *     Struct members pack within their own scope, not the contract scope.
- *
+ * @argument i  for array that are drived can also share slot, come back  here later
  *   - **Array elements / mapping values:** siblings = `[elementVariable]`
  *     (a single-element array). Each array element or mapping value lives
  *     at its own derived slot and does not pack with other entries.
