@@ -20,6 +20,8 @@ import { Command } from 'commander'
 import chalk from 'chalk'
 
 import { loadSnapshot } from '../../core/snapshot/store.js'
+import { validateSnapshotFile } from '../../core/snapshot/store.js'
+import { validateArtifact } from '../../core/artifact-parser/normalizer.js'
 import { diffSnapshots } from '../../core/diff/engine.js'
 import { formatDiffTerminal } from '../formatters/terminal.js'
 import { formatDiffJson } from '../formatters/json.js'
@@ -68,6 +70,22 @@ function formatOutput(
   }
 }
 
+function assertValidSnapshotInput(path: string): void {
+  const snapshotCheck = validateSnapshotFile(path)
+  if (snapshotCheck.valid) return
+
+  const artifactCheck = validateArtifact(path)
+  if (artifactCheck.valid) {
+    throw new Error(
+      `File "${path}" looks like a contract artifact/storage layout, not a snapshot. ` +
+      `The "diff" command compares snapshot JSON files with a "variables" array. ` +
+      `Use "check-collision" for artifact layout comparisons, or generate snapshots first.`
+    )
+  }
+
+  throw new Error(`Invalid snapshot file "${path}": ${snapshotCheck.error}`)
+}
+
 export const diffCommand = new Command('diff')
   .description('Compare two snapshot files and report semantic storage changes')
   .argument('<before>', 'Path to the "before" snapshot JSON')
@@ -76,18 +94,24 @@ export const diffCommand = new Command('diff')
   .action(async (beforePath: string, afterPath: string, options) => {
     try {
       /* ---------------------------------------------------------------
-       * 1. Load both snapshot files from disk
+       * 1. Validate both input files before loading
+       * ------------------------------------------------------------- */
+      assertValidSnapshotInput(beforePath)
+      assertValidSnapshotInput(afterPath)
+
+      /* ---------------------------------------------------------------
+       * 2. Load both snapshot files from disk
        * ------------------------------------------------------------- */
       const before = loadSnapshot(beforePath)
       const after = loadSnapshot(afterPath)
 
       /* ---------------------------------------------------------------
-       * 2. Compute the semantic diff between the two snapshots
+       * 3. Compute the semantic diff between the two snapshots
        * ------------------------------------------------------------- */
       const diff = diffSnapshots(before, after)
 
       /* ---------------------------------------------------------------
-       * 3. Format and output the result
+       * 4. Format and output the result
        * ------------------------------------------------------------- */
       const format = validateFormat(options.output as string)
       const output = formatOutput(diff, format)
@@ -95,7 +119,7 @@ export const diffCommand = new Command('diff')
       console.log(output)
 
       /* ---------------------------------------------------------------
-       * 4. Exit with code 1 if there are changes (useful for CI gates)
+       * 5. Exit with code 1 if there are changes (useful for CI gates)
        * ------------------------------------------------------------- */
       if (diff.summary.changed > 0 || diff.summary.added > 0 || diff.summary.removed > 0) {
         process.exit(1)
