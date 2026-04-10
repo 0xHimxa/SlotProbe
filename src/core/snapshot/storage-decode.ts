@@ -13,9 +13,9 @@
  * Long values (> 31 bytes):
  *   The slot stores `(length * 2) + 1` (always odd), and the actual payload
  *   lives at `keccak256(slot)` across `ceil(length / 32)` consecutive slots.
- *   The decoder reads those data slots sequentially via the supplied
- *   `readSlotValue` callback, concatenates the hex, and trims to the
- *   declared byte length.
+ *   The decoder reads those data slots through the supplied callbacks,
+ *   preferring a bulk multi-slot read when available, then concatenates
+ *   the hex and trims to the declared byte length.
  *
  * This module is consumed exclusively by the snapshot capture pipeline when
  * it encounters a variable with `encoding: 'bytes'` or a label of `bytes`
@@ -37,6 +37,12 @@ import { bytesSlot } from '../storage-engine/slot-calculator.js'
  * @returns The raw 32-byte value as a `0x`-prefixed hex string
  */
 export type SlotValueReader = (slot: bigint) => Promise<`0x${string}`>
+/**
+ * Optional callback type for reading multiple storage slots in one call.
+ * When provided, long-form bytes/string decoding can fetch the whole
+ * out-of-line payload region as a single batched read.
+ */
+export type SlotValuesReader = (slots: bigint[]) => Promise<`0x${string}`[]>
 
 /**
  * Decodes a dynamic `bytes` or `string` storage variable, handling both
@@ -45,7 +51,7 @@ export type SlotValueReader = (slot: bigint) => Promise<`0x${string}`>
  * For short values the data is extracted directly from the slot. For long
  * values the function computes the data region at `keccak256(baseSlot)`,
  * reads `ceil(length / 32)` consecutive slots through the supplied reader
- * callback, and concatenates them into the final payload.
+ * callbacks, and concatenates them into the final payload.
  *
  * String values are decoded from hex to UTF-8. Bytes values are returned
  * as `0x`-prefixed hex.
@@ -55,8 +61,10 @@ export type SlotValueReader = (slot: bigint) => Promise<`0x${string}`>
  *                        (`'string'` or `'bytes'`) to choose the output format
  * @param baseSlot      - The variable's declared slot number, used to compute
  *                        the data region for long values via `keccak256(slot)`
- * @param readSlotValue - Callback to read additional data slots (used only
- *                        for long values that span multiple slots)
+ * @param readSlotValue  - Fallback callback for reading one additional data
+ *                         slot at a time
+ * @param readSlotValues - Optional bulk callback for reading all additional
+ *                         data slots in one batched call
  * @returns Decoded string (for `string` labels) or hex (for `bytes` labels)
  *
  * @example
@@ -72,7 +80,8 @@ export async function readDynamicBytesOrString(
   slotValue: `0x${string}`,
   variable: { label: string },
   baseSlot: bigint,
-  readSlotValue: SlotValueReader
+  readSlotValue: SlotValueReader,
+  readSlotValues?: SlotValuesReader
 ): Promise<string> {
   const hex = slotValue.slice(2).padStart(64, '0')
   const marker = parseInt(hex.slice(-2), 16)
@@ -91,13 +100,12 @@ export async function readDynamicBytesOrString(
   /** Long form — data lives at keccak256(baseSlot) across ceil(length/32) slots */
   const length = Number((BigInt(slotValue) - 1n) / 2n)
   const slotCount = Math.ceil(length / 32)
-  let dataHex = ''
   const dataStartSlot = bytesSlot(baseSlot)
-
-  for (let index = 0; index < slotCount; index += 1) {
-    const chunk = await readSlotValue(dataStartSlot + BigInt(index))
-    dataHex += chunk.slice(2)
-  }
+  const dataSlots = Array.from({ length: slotCount }, (_, index) => dataStartSlot + BigInt(index))
+  const chunks = readSlotValues
+    ? await readSlotValues(dataSlots)
+    : await Promise.all(dataSlots.map((slot) => readSlotValue(slot)))
+  const dataHex = chunks.map((chunk) => chunk.slice(2)).join('')
 
   /** Trim concatenated hex to the exact declared byte length */
   const trimmed = dataHex.slice(0, length * 2)

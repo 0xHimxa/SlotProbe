@@ -16,7 +16,8 @@
  *
  *   1. **Entry Layer** — `captureSnapshot` and `dryRunCapture` are the two
  *      public entry points. They parse the artifact, resolve the target
- *      block, and iterate over the filtered variable list.
+ *      block, and fan the filtered top-level variables into the recursive
+ *      dispatcher.
  *
  *   2. **Dispatch Layer** — `captureVariableEntries` inspects each variable's
  *      type metadata and routes it to the correct expansion handler:
@@ -27,9 +28,10 @@
  *        - `captureMappingEntries` → mapping entries by user-supplied keys (recursive)
  *
  *   3. **I/O Layer** — `getSlotValue`, `getSlotValues`, and `flushQueuedSlots`
- *      manage a shared slot cache and batch queue so that the recursive
- *      expansion never fetches the same slot twice, and multiple pending
- *      reads are flushed to the RPC reader in a single batch call.
+ *      manage a shared slot cache and batch queue so that concurrent
+ *      recursive branches never fetch the same slot twice, and pending
+ *      reads are drained through as few `readSlots` calls as the traversal
+ *      shape allows.
  *
  * Recursion Model
  * ───────────────
@@ -62,19 +64,18 @@
  *
  *   - **Struct members:** siblings = the struct's `typeInfo.members` array.
  *     Struct members pack within their own scope, not the contract scope.
- * @argument i  for array that are drived can also share slot, come back  here later
  *   - **Array elements / mapping values:** siblings = `[elementVariable]`
  *     (a single-element array). Each array element or mapping value lives
  *     at its own derived slot and does not pack with other entries.
  *
- * Slot Caching & Batching
+ * Concurrent Traversal, Caching & Batching
  * ───────────────────────
  * The `slotCache` (a `Map<bigint, Promise<hex>>`) ensures every unique
  * slot is read at most once per capture. The `SlotBatchState` accumulates
- * pending read requests and drains them through `flushQueuedSlots`, which
- * calls the RPC reader once per batch. This design means that a struct
- * with 10 members at 10 different slots triggers one batched RPC call
- * rather than 10 sequential calls.
+ * pending read requests from multiple concurrent branches and drains them
+ * through `flushQueuedSlots`. This lets sibling struct members, array
+ * elements, mapping keys, and top-level variables share the same batching
+ * pipeline while the final output order stays deterministic.
  *
  * @module core/snapshot/capture
  */
@@ -252,14 +253,15 @@ export function dryRunCapture(options: CaptureOptions): CaptureResult {
  *   2. **Filter** the layout to the `--only` subset (if provided)
  *   3. **Resolve** the target block number (explicit or `latest`)
  *   4. **Walk** every top-level variable through the recursive dispatch
- *      layer, expanding structs, arrays, and mappings into flat
- *      `SnapshotEntry` records with semantic paths
+ *      layer concurrently, expanding structs, arrays, and mappings into
+ *      flat `SnapshotEntry` records with semantic paths
  *   5. **Assemble** the entries into a `Snapshot` document
  *   6. **Persist** the snapshot to disk (if `outPath` is set)
  *
  * All slot reads are deduplicated through a shared `slotCache` and batched
  * through a `SlotBatchState`, so even contracts with hundreds of variables
- * produce a minimal number of RPC round-trips.
+ * can share flush cycles across independent branches and avoid redundant
+ * round-trips.
  *
  * @param options - Full capture options including chain, address, artifact,
  *                  and optional filters/keys/output path
@@ -290,8 +292,6 @@ export async function captureSnapshot(options: CaptureOptions): Promise<Snapshot
     blockNum = block.number ?? undefined
   }
 
-  const entries: SnapshotEntry[] = []
-
   /**
    * Shared slot cache — maps each unique slot position to the promise
    * that will resolve with its raw hex value. Prevents duplicate reads
@@ -306,29 +306,22 @@ export async function captureSnapshot(options: CaptureOptions): Promise<Snapshot
    */
   const slotBatch = createSlotBatchState()
 
-  for (const variable of layout.variables) {
-    /**
-     * Each top-level variable enters the recursive dispatch with:
-     *   - `siblingVariables: layout.variables` — all contract-level variables
-     *     are siblings of each other. This is critical for packed-slot detection:
-     *     if `uint128 a` and `uint128 b` share slot 0, both need to see each
-     *     other as siblings so the packed extraction path is triggered.
-     *   - `path: variable.name` — the root of the semantic path tree
-     *   - `baseSlot: variable.slot` — the declared slot from the layout
-     */
-    const variableEntries = await captureVariableEntries({
-      variable,
-      siblingVariables: layout.variables,
-      path: variable.name,
-      baseSlot: variable.slot,
-      layout,
-      options,
-      blockNum,
-      slotCache,
-      slotBatch,
-    })
-    entries.push(...variableEntries)
-  }
+  const entryGroups = await Promise.all(
+    layout.variables.map((variable) =>
+      captureVariableEntries({
+        variable,
+        siblingVariables: layout.variables,
+        path: variable.name,
+        baseSlot: variable.slot,
+        layout,
+        options,
+        blockNum,
+        slotCache,
+        slotBatch,
+      })
+    )
+  )
+  const entries = entryGroups.flat()
 
   /** Assemble the final snapshot document */
   const snapshot: Snapshot = {
@@ -551,7 +544,8 @@ async function captureLeafEntry(input: CaptureVariableInput): Promise<SnapshotEn
       slotValue,
       input.variable,
       input.baseSlot,
-      (slot) => getSlotValue(slot, input.options, input.blockNum, input.slotCache, input.slotBatch)
+      (slot) => getSlotValue(slot, input.options, input.blockNum, input.slotCache, input.slotBatch),
+      (slots) => getSlotValues(slots, input.options, input.blockNum, input.slotCache, input.slotBatch)
     )
 
     return {
@@ -612,9 +606,10 @@ async function captureLeafEntry(input: CaptureVariableInput): Promise<SnapshotEn
  * struct's own member list (not the parent scope).
  *
  * To minimise RPC round-trips, all member slots are prefetched into the
- * shared slot cache before the recursive expansion begins. This means
- * a struct with 5 members across 3 slots triggers only 3 slot reads
- * (batched into one RPC call), not 5.
+ * shared slot cache before the recursive expansion begins. Member captures
+ * are then launched concurrently, so nested reads they trigger can join
+ * the same shared batch pipeline instead of being forced through a purely
+ * serial member walk.
  *
  * @param input    - Capture context positioned at the struct's base slot
  * @param typeInfo - Type metadata containing the `members` array
@@ -629,7 +624,6 @@ async function captureStructEntries(
   input: CaptureVariableInput,
   typeInfo: TypeInfo
 ): Promise<SnapshotEntry[]> {
-  const entries: SnapshotEntry[] = []
   const members = typeInfo.members ?? []
 
   /**
@@ -645,25 +639,26 @@ async function captureStructEntries(
     input.slotBatch
   )
 
-  for (const member of members) {
-    /**
-     * Member.slot is relative to the struct base — NOT the contract root.
-     * For a struct at slot 5 with a member at relative slot 1, the actual
-     * storage position is slot 6.
-     */
-    const memberBaseSlot = input.baseSlot + member.slot
-    const memberEntries = await captureVariableEntries({
-      ...input,
-      variable: member,
-      /** Struct members pack within their own scope, not the parent scope */
-      siblingVariables: typeInfo.members ?? [],
-      path: `${input.path}.${member.name}`,
-      baseSlot: memberBaseSlot,
+  const memberGroups = await Promise.all(
+    members.map((member) => {
+      /**
+       * Member.slot is relative to the struct base — NOT the contract root.
+       * For a struct at slot 5 with a member at relative slot 1, the actual
+       * storage position is slot 6.
+       */
+      const memberBaseSlot = input.baseSlot + member.slot
+      return captureVariableEntries({
+        ...input,
+        variable: member,
+        /** Struct members pack within their own scope, not the parent scope */
+        siblingVariables: typeInfo.members ?? [],
+        path: `${input.path}.${member.name}`,
+        baseSlot: memberBaseSlot,
+      })
     })
-    entries.push(...memberEntries)
-  }
+  )
 
-  return entries
+  return memberGroups.flat()
 }
 
 /**
@@ -680,7 +675,8 @@ async function captureStructEntries(
  *   3. Compute the data-region start slot via `keccak256(baseSlot)`
  *   4. Compute each element's base slot: `dataStart + index * stride`
  *   5. Prefetch all element base slots into the cache
- *   6. Recursively capture each element (may itself be a struct/array/mapping)
+ *   6. Recursively capture each element concurrently (may itself be a
+ *      struct/array/mapping)
  *
  * @param input    - Capture context positioned at the array's base slot
  * @param typeInfo - Type metadata containing the `base` (element type) reference
@@ -748,24 +744,27 @@ async function captureDynamicArrayEntries(
   )
 
   /** Step 6: Recursively capture each element */
-  for (let index = 0n; index < length; index += 1n) {
-    const elementBaseSlot = dataStartSlot + index * BigInt(elementSlots)
-    const elementVariable = typeInfoToVariable(typeInfo.base, elementType)
-    const elementEntries = await captureVariableEntries({
-      ...input,
-      variable: elementVariable,
-      /**
-       * Array elements are isolated — each lives at its own derived slot
-       * and does not pack with other elements. A single-element sibling
-       * array means packed-slot detection will correctly return false.
-       */
-      siblingVariables: [elementVariable],
-      path: `${input.path}[${index.toString()}]`,
-      baseSlot: elementBaseSlot,
+  const elementGroups = await Promise.all(
+    Array.from({ length: Number(length) }, (_, index) => {
+      const elementIndex = BigInt(index)
+      const elementBaseSlot = dataStartSlot + elementIndex * BigInt(elementSlots)
+      const elementVariable = typeInfoToVariable(typeInfo.base!, elementType)
+      return captureVariableEntries({
+        ...input,
+        variable: elementVariable,
+        /**
+         * Array elements are isolated — each lives at its own derived slot
+         * and does not pack with other elements. A single-element sibling
+         * array means packed-slot detection will correctly return false.
+         */
+        siblingVariables: [elementVariable],
+        path: `${input.path}[${elementIndex.toString()}]`,
+        baseSlot: elementBaseSlot,
+      })
     })
-    entries.push(...elementEntries)
-  }
+  )
 
+  entries.push(...elementGroups.flat())
   return entries
 }
 
@@ -796,7 +795,8 @@ async function captureDynamicArrayEntries(
  *   4. Compute each element's base slot: `baseSlot + index * stride`
  *      (NO keccak256 — elements sit directly at the declared slots)
  *   5. Prefetch all element base slots into the cache
- *   6. Recursively capture each element (may itself be a struct/array/mapping)
+ *   6. Recursively capture each element concurrently (may itself be a
+ *      struct/array/mapping)
  *
  * @param input    - Capture context positioned at the array's base slot
  * @param typeInfo - Type metadata containing the `base` (element type) reference
@@ -819,8 +819,6 @@ async function captureFixedArrayEntries(
   input: CaptureVariableInput,
   typeInfo: TypeInfo
 ): Promise<SnapshotEntry[]> {
-  const entries: SnapshotEntry[] = []
-
   /**
    * Step 1: Resolve element type metadata.
    * The `base` field contains the compiler-internal type ID of each element
@@ -828,7 +826,7 @@ async function captureFixedArrayEntries(
    * validated by the `isFixedLengthArray` check in the dispatch layer.
    */
   if (!typeInfo.base) {
-    return entries
+    return []
   }
 
   const elementType = getTypeInfoOrThrow(input.layout, typeInfo.base)
@@ -846,7 +844,7 @@ async function captureFixedArrayEntries(
   const length = getFixedArrayLength(typeInfo, elementType)
 
   if (length === 0) {
-    return entries
+    return []
   }
 
   /**
@@ -887,28 +885,29 @@ async function captureFixedArrayEntries(
   )
 
   /** Step 6: Recursively capture each element */
-  for (let index = 0; index < length; index += 1) {
-    const elementBaseSlot = input.baseSlot + BigInt(index) * BigInt(elementSlots)
-    const elementVariable = typeInfoToVariable(typeInfo.base, elementType)
-    const elementEntries = await captureVariableEntries({
-      ...input,
-      variable: elementVariable,
-      /**
-       * Fixed-array elements are isolated — each lives at its own slot
-       * and does not pack with other elements. A single-element sibling
-       * array means packed-slot detection will correctly return false.
-       *
-       * This is the same sibling strategy used by dynamic arrays and
-       * mapping values — derived slots don't share with each other.
-       */
-      siblingVariables: [elementVariable],
-      path: `${input.path}[${index}]`,
-      baseSlot: elementBaseSlot,
+  const elementGroups = await Promise.all(
+    Array.from({ length }, (_, index) => {
+      const elementBaseSlot = input.baseSlot + BigInt(index) * BigInt(elementSlots)
+      const elementVariable = typeInfoToVariable(typeInfo.base!, elementType)
+      return captureVariableEntries({
+        ...input,
+        variable: elementVariable,
+        /**
+         * Fixed-array elements are isolated — each lives at its own slot
+         * and does not pack with other elements. A single-element sibling
+         * array means packed-slot detection will correctly return false.
+         *
+         * This is the same sibling strategy used by dynamic arrays and
+         * mapping values — derived slots don't share with each other.
+         */
+        siblingVariables: [elementVariable],
+        path: `${input.path}[${index}]`,
+        baseSlot: elementBaseSlot,
+      })
     })
-    entries.push(...elementEntries)
-  }
+  )
 
-  return entries
+  return elementGroups.flat()
 }
 
 /**
@@ -921,8 +920,8 @@ async function captureFixedArrayEntries(
  *
  * For each key, the function:
  *   1. Computes the hashed storage slot via `calculateMappingEntrySlot`
- *   2. Recursively captures the mapped value type (which may itself be
- *      a struct, array, or nested mapping)
+ *   2. Recursively captures each mapped value concurrently (which may
+ *      itself be a struct, array, or nested mapping)
  *
  * When layout metadata or keys are missing, a placeholder entry is
  * emitted instead of failing silently. This ensures the variable
@@ -953,30 +952,29 @@ async function captureMappingEntries(
 
   const valueType = getTypeInfoOrThrow(input.layout, typeInfo.value)
   const valueVariable = typeInfoToVariable(typeInfo.value, valueType)
-  const entries: SnapshotEntry[] = []
-
-  for (const key of keys) {
-    /**
-     * Each mapping key produces a unique derived slot via keccak256 hashing.
-     * The key type (address, uint, bool, etc.) determines the hashing scheme —
-     * see `calculateMappingEntrySlot` and `slot-calculator.ts` for full details.
-     */
-    const entrySlot = calculateMappingEntrySlot(key, input.baseSlot, typeInfo.key)
-    const valueEntries = await captureVariableEntries({
-      ...input,
-      variable: valueVariable,
+  const entryGroups = await Promise.all(
+    keys.map((key) => {
       /**
-       * Mapping values are isolated — each lives at its own keccak256-derived
-       * slot and does not pack with values from other keys.
+       * Each mapping key produces a unique derived slot via keccak256 hashing.
+       * The key type (address, uint, bool, etc.) determines the hashing scheme —
+       * see `calculateMappingEntrySlot` and `slot-calculator.ts` for full details.
        */
-      siblingVariables: [valueVariable],
-      path: `${input.path}[${key}]`,
-      baseSlot: entrySlot,
+      const entrySlot = calculateMappingEntrySlot(key, input.baseSlot, typeInfo.key)
+      return captureVariableEntries({
+        ...input,
+        variable: valueVariable,
+        /**
+         * Mapping values are isolated — each lives at its own keccak256-derived
+         * slot and does not pack with values from other keys.
+         */
+        siblingVariables: [valueVariable],
+        path: `${input.path}[${key}]`,
+        baseSlot: entrySlot,
+      })
     })
-    entries.push(...valueEntries)
-  }
+  )
 
-  return entries
+  return entryGroups.flat()
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1022,8 +1020,8 @@ async function getSlotValue(
  *   - `queuedSlots` — slots waiting to be included in the next flush
  *   - `pendingResolvers` — promise resolve/reject callbacks for each
  *     queued slot (keyed by slot number)
- *   - `flushPromise` — guards against concurrent flushes; later callers
- *     await the same flush instead of starting a duplicate read
+ *   - `flushPromise` — tracks the currently active drain so later callers
+ *     can await it instead of starting a duplicate read
  */
 interface SlotBatchState {
   /** Set of slot numbers awaiting their first read */
@@ -1120,14 +1118,15 @@ async function getSlotValues(
  * `readSlots` — everything else works through the cache/batch abstraction.
  *
  * Flush semantics:
+ *   - Reuses any currently active drain instead of starting a second one
  *   - Takes a snapshot of the current queue and clears it
  *   - Calls `readSlots` with the queued slot numbers
  *   - Resolves each slot's pending promise with the returned value
  *   - If a slot is missing from the reader response, its promise is
  *     rejected and the cache entry is removed (so a retry can rebuild it)
  *   - If the reader itself throws, ALL pending promises are rejected
- *   - The `flushPromise` guard ensures only one flush loop runs at a time;
- *     concurrent callers await the same active flush
+ *   - After one drain completes, it immediately starts another if new work
+ *     was queued while the previous drain was in flight
  *
  * @param options   - Capture options (for address, chain, rpcUrl)
  * @param blockNum  - Target block number
@@ -1140,61 +1139,63 @@ async function flushQueuedSlots(
   slotCache: Map<bigint, Promise<`0x${string}`>>,
   slotBatch: SlotBatchState
 ): Promise<void> {
-  if (!slotBatch.flushPromise) {
-    slotBatch.flushPromise = (async () => {
-      /**
-       * Loop: the queue may refill during a flush if a resolver's consumer
-       * triggers further reads (e.g. dynamic bytes reading extra data slots).
-       * Keep draining until the queue is truly empty.
-       */
-      while (slotBatch.queuedSlots.size > 0) {
-        const slots = Array.from(slotBatch.queuedSlots)
-        slotBatch.queuedSlots.clear()
+  while (slotBatch.flushPromise || slotBatch.queuedSlots.size > 0) {
+    if (!slotBatch.flushPromise) {
+      slotBatch.flushPromise = (async () => {
+        /**
+         * Loop: the queue may refill during a flush if a resolver's consumer
+         * triggers further reads (e.g. dynamic bytes reading extra data slots).
+         * Keep draining until the queue is truly empty.
+         */
+        while (slotBatch.queuedSlots.size > 0) {
+          const slots = Array.from(slotBatch.queuedSlots)
+          slotBatch.queuedSlots.clear()
 
-        try {
-          const values = await readSlots(
-            options.address,
-            slots,
-            options.chain,
-            blockNum,
-            options.rpcUrl
-          )
+          try {
+            const values = await readSlots(
+              options.address,
+              slots,
+              options.chain,
+              blockNum,
+              options.rpcUrl
+            )
 
-          for (const slot of slots) {
-            const resolver = slotBatch.pendingResolvers.get(slot)
-            const value = values.get(slot)
+            for (const slot of slots) {
+              const resolver = slotBatch.pendingResolvers.get(slot)
+              const value = values.get(slot)
 
-            if (!resolver) {
-              continue
-            }
+              if (!resolver) {
+                continue
+              }
 
-            if (!value) {
-              /** Reader didn't return this slot — reject and clean up */
-              resolver.reject(new Error(`Batch reader did not return a value for slot ${slot.toString()}`))
-              slotCache.delete(slot)
+              if (!value) {
+                /** Reader didn't return this slot — reject and clean up */
+                resolver.reject(new Error(`Batch reader did not return a value for slot ${slot.toString()}`))
+                slotCache.delete(slot)
+                slotBatch.pendingResolvers.delete(slot)
+                continue
+              }
+
+              resolver.resolve(value)
               slotBatch.pendingResolvers.delete(slot)
-              continue
             }
-
-            resolver.resolve(value)
-            slotBatch.pendingResolvers.delete(slot)
+          } catch (error) {
+            /** Reader failure — reject ALL pending slots and clean up cache */
+            for (const slot of slots) {
+              slotBatch.pendingResolvers.get(slot)?.reject(error)
+              slotBatch.pendingResolvers.delete(slot)
+              slotCache.delete(slot)
+            }
+            throw error
           }
-        } catch (error) {
-          /** Reader failure — reject ALL pending slots and clean up cache */
-          for (const slot of slots) {
-            slotBatch.pendingResolvers.get(slot)?.reject(error)
-            slotBatch.pendingResolvers.delete(slot)
-            slotCache.delete(slot)
-          }
-          throw error
         }
-      }
-    })().finally(() => {
-      slotBatch.flushPromise = undefined
-    })
-  }
+      })().finally(() => {
+        slotBatch.flushPromise = undefined
+      })
+    }
 
-  await slotBatch.flushPromise
+    await slotBatch.flushPromise
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════

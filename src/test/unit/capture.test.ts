@@ -257,6 +257,9 @@ describe('captureSnapshot', () => {
     expect(findEntry(snapshot, 'statusCounter')?.decodedValue).toBe('52719')
     expect(mockReadSlot).not.toHaveBeenCalled()
     expect(mockReadSlots).toHaveBeenCalled()
+    expect(
+      mockReadSlots.mock.calls.some((call) => batchContainsSlots(call[1], [titleDataSlot, titleDataSlot + 1n]))
+    ).toBe(true)
   })
 
   it('expands fixed-length arrays with scalar and struct element types', async () => {
@@ -494,4 +497,8 @@ function encodeShortBytes(hex: string): `0x${string}` {
 
 function asSlotHex(value: string): `0x${string}` {
   return value as `0x${string}`
+}
+
+function batchContainsSlots(batch: bigint[], expectedSlots: bigint[]): boolean {
+  return expectedSlots.every((slot) => batch.includes(slot))
 }
