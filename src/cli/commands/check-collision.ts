@@ -2,22 +2,30 @@
  * CLI Command — check-collision
  *
  * Compares two contract build artifacts (Foundry or Hardhat) and detects
- * whether the new version introduces any storage slot collisions that would
+ * whether the new version introduces storage-layout collisions that would
  * corrupt state during an upgrade.
  *
  * This command is designed for CI integration: it exits with code 0 when
  * the upgrade is safe and code 1 when collisions are detected, so it can
  * be used as a GitHub Actions check that blocks unsafe PRs.
  *
+ * In addition to direct top-level slot overlap, the core detector now
+ * checks deeper structural cases such as nested struct members and the
+ * representative storage shapes of mapping values and array elements.
+ *
  * Supports three output formats:
  *   terminal  — Human-readable report with coloured collision details
  *   json      — Machine-readable JSON for programmatic consumption
  *   markdown  — Markdown table for PR descriptions and issue comments
  *
+ * The optional `--proxy-pattern` flag lets callers exclude reserved
+ * proxy metadata slots when auditing upgradeable proxy deployments.
+ *
  * @example
  *   slotprobe check-collision ./out/OldToken.json ./out/NewToken.json
  *   slotprobe check-collision old.json new.json --output json
- *   slotprobe check-collision old.json new.json --output markdown
+  *   slotprobe check-collision old.json new.json --output markdown
+ *   slotprobe check-collision old.json new.json --proxy-pattern eip1967
  */
 
 import { Command } from 'commander'
@@ -29,9 +37,12 @@ import { formatCollisionReport, getCollisionExitCode } from '../../core/collisio
 import { formatCollisionJson } from '../formatters/json.js'
 import { formatCollisionMarkdown } from '../formatters/markdown.js'
 import type { CollisionResult } from '../../core/collision/detector.js'
+import type { ProxyPattern } from '../../core/collision/proxy-handler.js'
 
 /** Supported output format literals */
 type OutputFormat = 'terminal' | 'json' | 'markdown'
+/** Proxy patterns supported by the CLI flag surface */
+type ProxyPatternOption = Exclude<ProxyPattern, 'custom'>
 
 /**
  * Validates the user-supplied output format, falling back to 'terminal'
@@ -47,6 +58,34 @@ function validateFormat(format: string): OutputFormat {
     return 'terminal'
   }
   return format as OutputFormat
+}
+
+/**
+ * Validates the optional proxy-pattern flag.
+ *
+ * The CLI intentionally exposes only the built-in patterns that the
+ * collision layer knows how to filter deterministically. Unknown values
+ * are ignored with a warning so the command stays usable in CI scripts.
+ *
+ * @param pattern - Raw value from `--proxy-pattern`
+ * @returns A validated proxy pattern, or `undefined` when omitted/invalid
+ */
+function validateProxyPattern(pattern?: string): ProxyPatternOption | undefined {
+  if (!pattern) {
+    return undefined
+  }
+
+  const supported: ProxyPatternOption[] = ['eip1967', 'transparent', 'uups']
+  if (!supported.includes(pattern as ProxyPatternOption)) {
+    console.warn(
+      chalk.yellow(
+        `Unknown proxy pattern "${pattern}". Ignoring proxy slot exclusion.`
+      )
+    )
+    return undefined
+  }
+
+  return pattern as ProxyPatternOption
 }
 
 /**
@@ -74,6 +113,10 @@ export const checkCollisionCommand = new Command('check-collision')
   .argument('<oldArtifact>', 'Path to the old contract build artifact JSON')
   .argument('<newArtifact>', 'Path to the new contract build artifact JSON')
   .option('--output <format>', 'Output format: terminal (default) | json | markdown', 'terminal')
+  .option(
+    '--proxy-pattern <pattern>',
+    'Exclude reserved proxy slots for: eip1967 | transparent | uups'
+  )
   .action(async (oldArtifactPath: string, newArtifactPath: string, options) => {
     try {
       /* ---------------------------------------------------------------
@@ -83,9 +126,11 @@ export const checkCollisionCommand = new Command('check-collision')
       const newLayout = parseArtifact(newArtifactPath)
 
       /* ---------------------------------------------------------------
-       * 2. Run the collision detection algorithm
+       * 2. Validate optional proxy settings, then run the detector
+       *    against the fully normalised layouts
        * ------------------------------------------------------------- */
-      const result = detectCollisions(oldLayout, newLayout)
+      const proxyPattern = validateProxyPattern(options.proxyPattern as string | undefined)
+      const result = detectCollisions(oldLayout, newLayout, { proxyPattern })
 
       /* ---------------------------------------------------------------
        * 3. Format and print the result
