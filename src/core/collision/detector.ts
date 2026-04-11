@@ -254,7 +254,7 @@ function flattenVariable(
   const typeInfo = layout.types[variable.type];
   const absoluteSlot = context.baseSlot + variable.slot;
   const path = joinPath(context.path, variable.name);
-
+//need to handle the case where type info is missing, otherwise we can't report the field at all
   if (!typeInfo) {
     return [
       toField(
@@ -279,6 +279,7 @@ function flattenVariable(
         variable.label,
       ),
     ];
+    //need to handle the case where mapping value type info is missing, otherwise we can't report the value shape at all
 
     if (typeInfo.value) {
       fields.push(
@@ -371,7 +372,7 @@ function flattenTypeAtPosition(
   },
 ): FlattenedField[] {
   const typeInfo = layout.types[typeId];
-
+//need to handle the case where type info is missing, otherwise we can't report the field at all
   if (!typeInfo) {
     return [];
   }

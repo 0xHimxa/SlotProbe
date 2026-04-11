@@ -21,20 +21,26 @@ import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { diffSnapshots, hasChanges } from '../diff/engine.js'
+import { parseArtifact, validateArtifact } from '../artifact-parser/normalizer.js'
+import type { SupportedChain } from '../../rpc/index.js'
+import { captureSnapshot } from '../snapshot/capture.js'
 import { loadSnapshot, validateSnapshotFile } from '../snapshot/store.js'
+import type { MappingKeysFile } from '../snapshot/mapping-keys.js'
+import type { Snapshot } from '../snapshot/types.js'
+import type { StorageLayout } from '../artifact-parser/types.js'
 
 export interface VerifyOptions {
   /** Path to migration script */
   scriptPath: string
-  /** Chain to fork */
-  chain: string
-  /** Block number to fork at */
-  blockNumber: bigint
   /** RPC URL for forking */
   rpcUrl: string
+  /** Path to the "before" snapshot JSON */
+  beforeSnapshotPath: string
   /** Expected "after" snapshot path */
   afterSnapshotPath: string
-  /** Actual post-migration snapshot path, if a capture step produced one */
+  /** Path to the contract artifact used to recapture state on the fork */
+  artifactPath: string
+  /** Actual post-migration snapshot output path, if the caller wants one */
   actualSnapshotPath?: string
 }
 
@@ -61,6 +67,14 @@ export async function verifyMigration(options: VerifyOptions): Promise<VerifyRes
     return { success: false, message: `Migration script not found: ${options.scriptPath}` }
   }
 
+  const beforeSnapshotValidation = validateSnapshotFile(options.beforeSnapshotPath)
+  if (!beforeSnapshotValidation.valid) {
+    return {
+      success: false,
+      message: `Before snapshot is invalid: ${beforeSnapshotValidation.error}`,
+    }
+  }
+
   const expectedSnapshot = validateSnapshotFile(options.afterSnapshotPath)
   if (!expectedSnapshot.valid) {
     return {
@@ -69,14 +83,27 @@ export async function verifyMigration(options: VerifyOptions): Promise<VerifyRes
     }
   }
 
-  console.log(`Starting Anvil fork at block ${options.blockNumber}...`)
+  const artifactValidation = validateArtifact(options.artifactPath)
+  if (!artifactValidation.valid) {
+    return {
+      success: false,
+      message: `Artifact is invalid: ${artifactValidation.error}`,
+    }
+  }
+
+  const beforeSnapshot = loadSnapshot(options.beforeSnapshotPath)
+  const afterSnapshot = loadSnapshot(options.afterSnapshotPath)
+  const layout = parseArtifact(options.artifactPath)
+  const captureScope = deriveCaptureScope(layout, beforeSnapshot, afterSnapshot)
+
+  console.log(`Starting Anvil fork at block ${beforeSnapshot.blockNumber}...`)
 
   let anvil: ReturnType<typeof spawn> | null = null
 
   try {
     anvil = spawn('anvil', [
       '--fork-url', options.rpcUrl,
-      '--fork-block-number', options.blockNumber.toString(),
+      '--fork-block-number', beforeSnapshot.blockNumber,
       '--port', anvilPort.toString(),
     ], {
       stdio: 'pipe',
@@ -108,6 +135,27 @@ export async function verifyMigration(options: VerifyOptions): Promise<VerifyRes
       return { success: false, message: 'Failed to start Anvil fork' }
     }
 
+    console.log('Capturing pre-migration fork snapshot...')
+
+    const actualBeforeSnapshot = await captureSnapshot({
+      address: beforeSnapshot.address as `0x${string}`,
+      artifactPath: options.artifactPath,
+      chain: beforeSnapshot.chain as SupportedChain,
+      rpcUrl: anvilUrl,
+      only: captureScope.only,
+      mappingKeys: captureScope.mappingKeys,
+    })
+
+    const beforeDiff = diffSnapshots(beforeSnapshot, actualBeforeSnapshot)
+    if (hasChanges(beforeDiff)) {
+      return {
+        success: false,
+        message:
+          `Pre-migration fork state does not match the expected before snapshot ` +
+          `(${beforeDiff.summary.changed} changed, ${beforeDiff.summary.added} added, ${beforeDiff.summary.removed} removed).`,
+      }
+    }
+
     console.log('Running migration script on Anvil fork...')
 
     const migrationScript = readMigrationScript(options.scriptPath)
@@ -126,24 +174,17 @@ export async function verifyMigration(options: VerifyOptions): Promise<VerifyRes
 
     console.log('Comparing against expected snapshot...')
 
-    if (!options.actualSnapshotPath) {
-      return {
-        success: true,
-        message: 'Migration executed on the fork, but no actual post-migration snapshot was provided for comparison.',
-      }
-    }
+    const actualAfterSnapshot = await captureSnapshot({
+      address: afterSnapshot.address as `0x${string}`,
+      artifactPath: options.artifactPath,
+      chain: afterSnapshot.chain as SupportedChain,
+      rpcUrl: anvilUrl,
+      only: captureScope.only,
+      mappingKeys: captureScope.mappingKeys,
+      outPath: options.actualSnapshotPath,
+    })
 
-    const actualSnapshot = validateSnapshotFile(options.actualSnapshotPath)
-    if (!actualSnapshot.valid) {
-      return {
-        success: false,
-        message: `Actual post-migration snapshot is invalid: ${actualSnapshot.error}`,
-      }
-    }
-
-    const expected = loadSnapshot(options.afterSnapshotPath)
-    const actual = loadSnapshot(options.actualSnapshotPath)
-    const diff = diffSnapshots(expected, actual)
+    const diff = diffSnapshots(afterSnapshot, actualAfterSnapshot)
 
     if (hasChanges(diff)) {
       return {
@@ -178,4 +219,77 @@ export async function verifyMigration(options: VerifyOptions): Promise<VerifyRes
  */
 function readMigrationScript(path: string): string {
   return readFileSync(path, 'utf-8')
+}
+
+/**
+ * Builds the smallest viable snapshot scope needed to compare the fork
+ * against the expected before/after snapshots.
+ */
+function deriveCaptureScope(
+  layout: StorageLayout,
+  beforeSnapshot: Snapshot,
+  afterSnapshot: Snapshot,
+): { only: string[]; mappingKeys: MappingKeysFile } {
+  const variableNames = new Set<string>()
+  const mappingKeys = new Map<string, Set<string>>()
+
+  for (const entry of [...beforeSnapshot.variables, ...afterSnapshot.variables]) {
+    const topLevelName = getTopLevelVariableName(entry.name)
+    variableNames.add(topLevelName)
+
+    const variable = layout.variables.find((candidate) => candidate.name === topLevelName)
+    const typeInfo = variable ? layout.types[variable.type] : undefined
+    if (typeInfo?.encoding !== 'mapping') {
+      continue
+    }
+
+    const key = getTopLevelMappingKey(entry.name, topLevelName)
+    if (!key) {
+      continue
+    }
+
+    if (!mappingKeys.has(topLevelName)) {
+      mappingKeys.set(topLevelName, new Set())
+    }
+    mappingKeys.get(topLevelName)!.add(key)
+  }
+
+  return {
+    only: [...variableNames],
+    mappingKeys: Object.fromEntries(
+      [...mappingKeys.entries()].map(([name, keys]) => [name, [...keys]])
+    ),
+  }
+}
+
+function getTopLevelVariableName(path: string): string {
+  const dotIndex = path.indexOf('.')
+  const bracketIndex = path.indexOf('[')
+  const endIndex = [dotIndex, bracketIndex]
+    .filter((index) => index !== -1)
+    .sort((a, b) => a - b)[0]
+
+  return endIndex === undefined ? path : path.slice(0, endIndex)
+}
+
+function getTopLevelMappingKey(path: string, variableName: string): string | undefined {
+  const prefix = `${variableName}[`
+  if (!path.startsWith(prefix)) {
+    return undefined
+  }
+
+  let depth = 0
+  for (let index = variableName.length; index < path.length; index += 1) {
+    const char = path[index]
+    if (char === '[') {
+      depth += 1
+    } else if (char === ']') {
+      depth -= 1
+      if (depth === 0) {
+        return path.slice(variableName.length + 1, index)
+      }
+    }
+  }
+
+  return undefined
 }

@@ -24,6 +24,7 @@ import { Command } from 'commander'
 import chalk from 'chalk'
 import { writeFileSync } from 'node:fs'
 
+import { validateArtifact } from '../../core/artifact-parser/normalizer.js'
 import { loadSnapshot } from '../../core/snapshot/store.js'
 import { diffSnapshots } from '../../core/diff/engine.js'
 import { generateMigrationScript } from '../../core/migration/generator.js'
@@ -64,6 +65,7 @@ export const generateMigrationCommand = new Command('generate-migration')
   .option('--out <path>', 'Output file path for the generated script')
   .option('--dry-run', 'Preview the migration changes without writing a file', false)
   .option('--rpc-url <url>', 'RPC URL for the Anvil fork (required with --verify)')
+  .option('--artifact <path>', 'Path to the contract artifact used to recapture state during --verify')
   .action(async (beforePath: string, afterPath: string, options) => {
     try {
       const format = validateFormat(options.format as string)
@@ -131,14 +133,25 @@ export const generateMigrationCommand = new Command('generate-migration')
           process.exit(1)
         }
 
+        if (!options.artifact) {
+          console.error(chalk.red('--artifact is required when using --verify'))
+          process.exit(1)
+        }
+
+        const artifactValidation = validateArtifact(options.artifact as string)
+        if (!artifactValidation.valid) {
+          console.error(chalk.red(`Invalid artifact: ${artifactValidation.error}`))
+          process.exit(1)
+        }
+
         console.log(chalk.cyan('\n🔬 Verifying migration on Anvil fork...\n'))
 
         const result = await verifyMigration({
           scriptPath: outPath,
-          chain: before.chain,
-          blockNumber: BigInt(before.blockNumber),
           rpcUrl: options.rpcUrl as string,
+          beforeSnapshotPath: beforePath,
           afterSnapshotPath: afterPath,
+          artifactPath: options.artifact as string,
         })
 
         if (result.success) {
