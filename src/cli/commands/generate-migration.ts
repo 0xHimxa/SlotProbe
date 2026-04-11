@@ -24,6 +24,7 @@ import { Command } from 'commander'
 import chalk from 'chalk'
 import { writeFileSync } from 'node:fs'
 
+import { loadConfig, resolveInputPath } from '../../config/loader.js'
 import { validateArtifact } from '../../core/artifact-parser/normalizer.js'
 import { loadSnapshot } from '../../core/snapshot/store.js'
 import { diffSnapshots } from '../../core/diff/engine.js'
@@ -68,14 +69,17 @@ export const generateMigrationCommand = new Command('generate-migration')
   .option('--artifact <path>', 'Path to the contract artifact used to recapture state during --verify')
   .action(async (beforePath: string, afterPath: string, options) => {
     try {
+      const config = loadConfig()
       const format = validateFormat(options.format as string)
       const outPath = (options.out as string | undefined) ?? defaultOutPath(format)
+      const resolvedBeforePath = resolveInputPath(beforePath, config.snapshotsDir)
+      const resolvedAfterPath = resolveInputPath(afterPath, config.snapshotsDir)
 
       /* ---------------------------------------------------------------
        * 1. Load both snapshots and compute their diff
        * ------------------------------------------------------------- */
-      const before = loadSnapshot(beforePath)
-      const after = loadSnapshot(afterPath)
+      const before = loadSnapshot(resolvedBeforePath)
+      const after = loadSnapshot(resolvedAfterPath)
       const diff = diffSnapshots(before, after)
 
       /** Only changed and added entries are migrated */
@@ -138,7 +142,8 @@ export const generateMigrationCommand = new Command('generate-migration')
           process.exit(1)
         }
 
-        const artifactValidation = validateArtifact(options.artifact as string)
+        const artifactPath = resolveInputPath(options.artifact as string, config.artifactsDir)
+        const artifactValidation = validateArtifact(artifactPath)
         if (!artifactValidation.valid) {
           console.error(chalk.red(`Invalid artifact: ${artifactValidation.error}`))
           process.exit(1)
@@ -149,9 +154,9 @@ export const generateMigrationCommand = new Command('generate-migration')
         const result = await verifyMigration({
           scriptPath: outPath,
           rpcUrl: options.rpcUrl as string,
-          beforeSnapshotPath: beforePath,
-          afterSnapshotPath: afterPath,
-          artifactPath: options.artifact as string,
+          beforeSnapshotPath: resolvedBeforePath,
+          afterSnapshotPath: resolvedAfterPath,
+          artifactPath,
         })
 
         if (result.success) {

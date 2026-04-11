@@ -5,6 +5,7 @@ const {
   getClientMock,
   getStorageAtMock,
   isRetryableErrorMock,
+  loadConfigMock,
   withRetryMock,
 } = vi.hoisted(() => ({
   getStorageAtMock: vi.fn(),
@@ -12,6 +13,7 @@ const {
   withRetryMock: vi.fn(),
   createBatcherMock: vi.fn(),
   isRetryableErrorMock: vi.fn(),
+  loadConfigMock: vi.fn(),
 }))
 
 vi.mock('../../rpc/index.js', () => ({
@@ -24,6 +26,10 @@ vi.mock('../../rpc/retry.js', () => ({
   isRetryableError: isRetryableErrorMock,
 }))
 
+vi.mock('../../config/loader.js', () => ({
+  loadConfig: loadConfigMock,
+}))
+
 import { readSlot, readSlots } from '../../core/storage-engine/reader.js'
 
 describe('reader', () => {
@@ -31,6 +37,17 @@ describe('reader', () => {
     vi.clearAllMocks()
     getClientMock.mockReturnValue({ getStorageAt: getStorageAtMock })
     withRetryMock.mockImplementation(async (fn: () => Promise<unknown>) => fn())
+    loadConfigMock.mockReturnValue({
+      defaultChain: 'mainnet',
+      rpc: {
+        maxConcurrent: 9,
+        retries: 4,
+        backoffMs: 2500,
+      },
+      output: 'terminal',
+      artifactsDir: './out',
+      snapshotsDir: './snapshots',
+    })
     createBatcherMock.mockImplementation(({ maxConcurrent }: { maxConcurrent: number }) => {
       return async <T>(tasks: Array<() => Promise<T>>): Promise<T[]> =>
         Promise.all(tasks.map((task) => task()))
@@ -54,6 +71,10 @@ describe('reader', () => {
 
       expect(getClientMock).toHaveBeenCalledWith('mainnet', 'https://rpc.example')
       expect(withRetryMock).toHaveBeenCalledTimes(1)
+      expect(withRetryMock).toHaveBeenCalledWith(expect.any(Function), {
+        retries: 4,
+        backoffMs: 2500,
+      })
       expect(getStorageAtMock).toHaveBeenCalledWith({
         address: '0x1234567890abcdef1234567890abcdef12345678',
         slot: '0x00000000000000000000000000000000000000000000000000000000000000ff',
@@ -124,6 +145,20 @@ describe('reader', () => {
         '0x0000000000000000000000000000000000000000000000000000000000000002'
       )
       expect(result.size).toBe(2)
+    })
+
+    it('falls back to configured concurrency when no explicit concurrency is provided', async () => {
+      getStorageAtMock.mockResolvedValue(
+        '0x0000000000000000000000000000000000000000000000000000000000000001'
+      )
+
+      await readSlots(
+        '0x1234567890abcdef1234567890abcdef12345678',
+        [1n],
+        'optimism',
+      )
+
+      expect(createBatcherMock).toHaveBeenCalledWith({ maxConcurrent: 9 })
     })
   })
 })

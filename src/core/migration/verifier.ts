@@ -150,9 +150,10 @@ export async function verifyMigration(options: VerifyOptions): Promise<VerifyRes
     if (hasChanges(beforeDiff)) {
       return {
         success: false,
-        message:
-          `Pre-migration fork state does not match the expected before snapshot ` +
-          `(${beforeDiff.summary.changed} changed, ${beforeDiff.summary.added} added, ${beforeDiff.summary.removed} removed).`,
+        message: formatVerificationFailure(
+          'Pre-migration fork state does not match the expected before snapshot.',
+          beforeDiff
+        ),
       }
     }
 
@@ -189,13 +190,19 @@ export async function verifyMigration(options: VerifyOptions): Promise<VerifyRes
     if (hasChanges(diff)) {
       return {
         success: false,
-        message: `Migration fork output does not match the expected snapshot (${diff.summary.changed} changed, ${diff.summary.added} added, ${diff.summary.removed} removed).`,
+        message: formatVerificationFailure(
+          'Migration fork output does not match the expected post-migration snapshot.',
+          diff
+        ),
       }
     }
 
     return {
       success: true,
-      message: 'Migration verified successfully',
+      message:
+        'Migration verified successfully\n' +
+        `Pre-migration state matched ${options.beforeSnapshotPath} (${beforeSnapshot.variables.length}/${beforeSnapshot.variables.length} variables)\n` +
+        `Post-migration state matched ${options.afterSnapshotPath} (${afterSnapshot.variables.length}/${afterSnapshot.variables.length} variables)`,
     }
 
   } catch (error) {
@@ -292,4 +299,56 @@ function getTopLevelMappingKey(path: string, variableName: string): string | und
   }
 
   return undefined
+}
+
+/**
+ * Formats a verification failure with both summary counts and a small,
+ * high-signal sample of the mismatched entries.
+ *
+ * Keeping this formatter inside the migration layer avoids coupling the core
+ * verifier to CLI-specific colour or output concerns while still giving the
+ * user enough detail to debug a failing migration in one pass.
+ */
+function formatVerificationFailure(prefix: string, diff: ReturnType<typeof diffSnapshots>): string {
+  const changedEntries = diff.entries.filter((entry) => entry.status !== 'unchanged')
+  const lines = [
+    prefix,
+    `Summary: ${diff.summary.changed} changed, ${diff.summary.added} added, ${diff.summary.removed} removed.`,
+  ]
+
+  for (const entry of changedEntries.slice(0, 10)) {
+    if (entry.status === 'changed') {
+      lines.push(`- ${entry.name}: expected ${stringifyValue(entry.before)} but found ${stringifyValue(entry.after)}`)
+      continue
+    }
+
+    if (entry.status === 'added') {
+      lines.push(`- ${entry.name}: unexpected value ${stringifyValue(entry.after)}`)
+      continue
+    }
+
+    lines.push(`- ${entry.name}: missing expected value ${stringifyValue(entry.before)}`)
+  }
+
+  if (changedEntries.length > 10) {
+    lines.push(`- ...and ${changedEntries.length - 10} more mismatched variable(s)`)
+  }
+
+  return lines.join('\n')
+}
+
+/**
+ * Renders unknown decoded values into stable single-line strings for
+ * verification diagnostics.
+ */
+function stringifyValue(value: unknown): string {
+  if (typeof value === 'string') {
+    return value
+  }
+
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
 }

@@ -31,6 +31,7 @@
 import { Command } from 'commander'
 import chalk from 'chalk'
 
+import { loadConfig, resolveInputPath } from '../../config/loader.js'
 import { parseArtifact } from '../../core/artifact-parser/normalizer.js'
 import { detectCollisions } from '../../core/collision/detector.js'
 import { formatCollisionReport, getCollisionExitCode } from '../../core/collision/report.js'
@@ -112,18 +113,23 @@ export const checkCollisionCommand = new Command('check-collision')
   .description('Check whether a contract upgrade introduces storage slot collisions')
   .argument('<oldArtifact>', 'Path to the old contract build artifact JSON')
   .argument('<newArtifact>', 'Path to the new contract build artifact JSON')
-  .option('--output <format>', 'Output format: terminal (default) | json | markdown', 'terminal')
+  .option('--output <format>', 'Output format: terminal (default) | json | markdown')
+  .option('--dry-run', 'Validate inputs and preview the collision check without printing the full report', false)
   .option(
     '--proxy-pattern <pattern>',
     'Exclude reserved proxy slots for: eip1967 | transparent | uups'
   )
   .action(async (oldArtifactPath: string, newArtifactPath: string, options) => {
     try {
+      const config = loadConfig()
+      const resolvedOldArtifactPath = resolveInputPath(oldArtifactPath, config.artifactsDir)
+      const resolvedNewArtifactPath = resolveInputPath(newArtifactPath, config.artifactsDir)
+
       /* ---------------------------------------------------------------
        * 1. Parse both artifacts into normalised StorageLayout objects
        * ------------------------------------------------------------- */
-      const oldLayout = parseArtifact(oldArtifactPath)
-      const newLayout = parseArtifact(newArtifactPath)
+      const oldLayout = parseArtifact(resolvedOldArtifactPath)
+      const newLayout = parseArtifact(resolvedNewArtifactPath)
 
       /* ---------------------------------------------------------------
        * 2. Validate optional proxy settings, then run the detector
@@ -132,10 +138,23 @@ export const checkCollisionCommand = new Command('check-collision')
       const proxyPattern = validateProxyPattern(options.proxyPattern as string | undefined)
       const result = detectCollisions(oldLayout, newLayout, { proxyPattern })
 
+      if (options.dryRun) {
+        console.log(chalk.cyan('🔍 Dry-run mode — no collision report will be emitted\n'))
+        console.log(`Would compare storage layouts:`)
+        console.log(chalk.dim(`  Old: ${resolvedOldArtifactPath} (${oldLayout.variables.length} variables)`))
+        console.log(chalk.dim(`  New: ${resolvedNewArtifactPath} (${newLayout.variables.length} variables)`))
+        if (proxyPattern) {
+          console.log(chalk.dim(`  Proxy slot exclusions: ${proxyPattern}`))
+        }
+        console.log(chalk.dim(`  Preview: ${result.collisions.length} collision(s) detected across ${result.variablesChecked} checked variable pair(s)`))
+        console.log(chalk.dim('\nNo collision report written (--dry-run)'))
+        return
+      }
+
       /* ---------------------------------------------------------------
        * 3. Format and print the result
        * ------------------------------------------------------------- */
-      const format = validateFormat(options.output as string)
+      const format = validateFormat((options.output as string | undefined) ?? config.output)
       const output = formatOutput(result, format)
 
       if (result.hasCollisions) {

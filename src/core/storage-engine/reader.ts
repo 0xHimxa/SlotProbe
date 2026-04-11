@@ -18,6 +18,7 @@
 
 import { createBatcher, getClient, type SupportedChain, withRetry } from '../../rpc/index.js'
 import { isRetryableError } from '../../rpc/retry.js'
+import { loadConfig } from '../../config/loader.js'
 
 /**
  * Reads a single storage slot from a deployed contract.
@@ -46,6 +47,7 @@ export async function readSlot(
   blockNumber?: bigint,
   rpcUrl?: string
 ): Promise<`0x${string}`> {
+  const config = loadConfig()
   const client = getClient(chain, rpcUrl)
   
   const slotHex = `0x${slot.toString(16).padStart(64, '0')}` as `0x${string}`
@@ -57,7 +59,10 @@ export async function readSlot(
         slot: slotHex,
         blockNumber: blockNumber ? blockNumber : undefined,
       }),
-      { retries: 3, backoffMs: 1000 }
+      {
+        retries: config.rpc.retries,
+        backoffMs: config.rpc.backoffMs,
+      }
     )
     
     return result ?? '0x0000000000000000000000000000000000000000000000000000000000000000'
@@ -100,12 +105,15 @@ export async function readSlots(
   chain: SupportedChain,
   blockNumber?: bigint,
   rpcUrl?: string,
-  concurrency: number = 50
+  concurrency?: number
 ): Promise<Map<bigint, `0x${string}`>> {
+  const config = loadConfig()
   const results = new Map<bigint, `0x${string}`>()
 
   const uniqueSlots = [...new Set(slots.map((slot) => slot.toString()))].map((slot) => BigInt(slot))
-  const batchRead = createBatcher({ maxConcurrent: concurrency })
+  const batchRead = createBatcher({
+    maxConcurrent: concurrency ?? config.rpc.maxConcurrent,
+  })
   const resolved = await batchRead(
     uniqueSlots.map((slot) => async () => {
       const value = await readSlot(address, slot, chain, blockNumber, rpcUrl)

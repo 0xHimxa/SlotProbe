@@ -117,6 +117,7 @@ SlotProbe check-collision ./artifacts/OldContract.json ./artifacts/NewContract.j
 SlotProbe generate-migration before.json after.json \
   --format foundry \
   --verify \
+  --artifact ./out/UniswapV3Pool.sol/UniswapV3Pool.json \
   --out migrate.s.sol
 
 # Dry-run a migration to see what it would change without executing
@@ -187,6 +188,12 @@ Every command that reads state or writes files supports `--dry-run`. This is cri
 SlotProbe snapshot 0x... --dry-run
 # Would read 23 variables across 31 RPC calls on mainnet at block 19042311
 
+SlotProbe diff before.json after.json --dry-run
+# Would compare before.json and after.json and print the summary without emitting the full diff
+
+SlotProbe check-collision old.json new.json --dry-run
+# Would parse both artifacts and preview the collision check plan
+
 SlotProbe generate-migration before.json after.json --dry-run
 # Would generate migration script with 3 state changes:
 #   fee: 3000 → 5000
@@ -252,6 +259,7 @@ Generates a ready-to-run Foundry or Hardhat script from a diff, then automatical
 SlotProbe generate-migration before.json after.json \
   --format foundry \
   --verify \
+  --artifact ./out/UniswapV3Pool.sol/UniswapV3Pool.json \
   --out migrate.s.sol
 ```
 
@@ -259,9 +267,10 @@ When `--verify` is passed, SlotProbe:
 1. Generates the migration script
 2. Spins up an Anvil fork at the before-snapshot block
 3. Runs the migration script against the fork
-4. Takes a post-migration snapshot
-5. Diffs it against `after.json`
-6. Passes if they match — fails with a diff if they don't
+4. Re-captures the pre-migration fork state and confirms it matches `before.json`
+5. Takes a post-migration snapshot
+6. Diffs it against `after.json`
+7. Passes if they match — fails with a detailed mismatch summary if they don't
 
 ```
 ✅ Migration verified on Anvil fork
@@ -275,7 +284,7 @@ Public RPC providers rate-limit aggressively. SlotProbe batches slot reads and r
 
 ```json
 {
-  "rpc": {
+  "rpcConfig": {
     "maxConcurrent": 5,
     "retries": 3,
     "backoffMs": 1000
@@ -1293,9 +1302,10 @@ export function generateMigrationScript(
 This is the most complex part of v1. When `--verify` is passed, SlotProbe:
 1. Spawns an Anvil process forked at the before-snapshot block
 2. Runs the generated migration script using `forge script`
-3. Takes a new snapshot of the contract
-4. Diffs it against the `after.json` snapshot
-5. Passes if all changed variables match, fails with a diff if not
+3. Re-captures the fork state before the migration and checks it against `before.json`
+4. Takes a new snapshot of the contract after the migration
+5. Diffs it against the `after.json` snapshot
+6. Passes if all changed variables match, fails with a detailed mismatch summary if not
 
 ```typescript
 // src/core/migration/verifier.ts
@@ -1497,12 +1507,18 @@ Usage: SlotProbe diff <before> <after> [options]
 
 Options:
   --output <format>        Output format: terminal (default) | json | markdown
+  --dry-run                Validate inputs and preview the diff plan
 ```
 
 ### `SlotProbe check-collision`
 
 ```
-Usage: SlotProbe check-collision <old-artifact> <new-artifact>
+Usage: SlotProbe check-collision <old-artifact> <new-artifact> [options]
+
+Options:
+  --output <format>        Output format: terminal (default) | json | markdown
+  --proxy-pattern <name>   Exclude reserved proxy slots: eip1967 | transparent | uups
+  --dry-run                Validate inputs and preview the collision check
 
 Exits with code 1 if any storage collision is detected.
 Safe for use in CI pipelines.
@@ -1516,8 +1532,9 @@ Usage: SlotProbe generate-migration <before> <after> [options]
 Options:
   --format <fmt>           foundry (default) | hardhat
   --out <path>             Output script path
-  --verify                 Auto-test migration on Anvil fork before writing
+  --verify                 Auto-test migration on Anvil fork before shipping
   --rpc-url <url>          RPC URL for Anvil fork (required with --verify)
+  --artifact <path>        Contract artifact used to recapture fork state (required with --verify)
   --dry-run                Preview changes without writing files
 ```
 
@@ -1530,7 +1547,7 @@ Create `.SlotProberc.json` in your project root:
 ```json
 {
   "defaultChain": "mainnet",
-  "rpc": {
+  "chains": {
     "mainnet": "https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY",
     "arbitrum": "https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY",
     "base": "https://base-mainnet.g.alchemy.com/v2/YOUR_KEY"

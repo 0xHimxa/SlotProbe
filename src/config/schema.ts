@@ -10,6 +10,13 @@
 
 import { z } from 'zod'
 
+/**
+ * Runtime knobs for outbound RPC traffic.
+ *
+ * These settings affect both individual slot reads and batched capture
+ * traversals. They are intentionally kept small and operational:
+ * concurrency, retry budget, and backoff timing.
+ */
 export const RpcConfigSchema = z.object({
   /** Maximum concurrent RPC calls */
   maxConcurrent: z.number().min(1).max(100).default(50),
@@ -21,26 +28,55 @@ export const RpcConfigSchema = z.object({
 
 export type RpcConfig = z.infer<typeof RpcConfigSchema>
 
-export const ConfigSchema = z.object({
-  /** RPC configuration */
-  rpc: RpcConfigSchema.default({
+/**
+ * Canonical configuration shape consumed by the application at runtime.
+ *
+ * The README has always described `defaultChain`, `rpcConfig`,
+ * `artifactsDir`, and `snapshotsDir`, while earlier code revisions only
+ * implemented a narrower `{ rpc, output, chains }` shape. The transform
+ * below accepts both variants and normalises them into one production
+ * shape so existing users do not break when upgrading.
+ */
+const RawConfigSchema = z.object({
+  /** Preferred default chain for snapshot-oriented commands */
+  defaultChain: z.string().optional(),
+  /** README-aligned RPC tuning section */
+  rpcConfig: RpcConfigSchema.optional(),
+  /** Backward-compatible alias accepted by older configs */
+  rpc: RpcConfigSchema.optional(),
+  /** Default output format for commands that support `--output` */
+  output: z.enum(['terminal', 'json', 'markdown']).optional(),
+  /** Chain-specific RPC URL overrides */
+  chains: z.record(z.string(), z.string()).optional(),
+  /** Default directory for build artifacts */
+  artifactsDir: z.string().optional(),
+  /** Default directory for generated snapshots */
+  snapshotsDir: z.string().optional(),
+}).transform((raw) => ({
+  defaultChain: raw.defaultChain ?? 'mainnet',
+  rpc: raw.rpcConfig ?? raw.rpc ?? {
     maxConcurrent: 50,
     retries: 3,
     backoffMs: 1000,
-  }),
-  /** Default output format */
-  output: z.enum(['terminal', 'json', 'markdown']).default('terminal'),
-  /** Chain-specific RPC URLs */
-  chains: z.record(z.string(), z.string()).optional(),
-})
+  },
+  output: raw.output ?? 'terminal',
+  chains: raw.chains,
+  artifactsDir: raw.artifactsDir ?? './out',
+  snapshotsDir: raw.snapshotsDir ?? './snapshots',
+}))
+
+export const ConfigSchema = RawConfigSchema
 
 export type Config = z.infer<typeof ConfigSchema>
 
 export const DEFAULT_CONFIG: Config = {
+  defaultChain: 'mainnet',
   rpc: {
     maxConcurrent: 50,
     retries: 3,
     backoffMs: 1000,
   },
   output: 'terminal',
+  artifactsDir: './out',
+  snapshotsDir: './snapshots',
 }

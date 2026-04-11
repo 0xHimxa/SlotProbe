@@ -28,7 +28,7 @@ import chalk from 'chalk'
 
 import { captureSnapshot, dryRunCapture } from '../../core/snapshot/capture.js'
 import { loadMappingKeys, validateMappingKeys } from '../../core/snapshot/mapping-keys.js'
-import { loadConfig } from '../../config/loader.js'
+import { loadConfig, resolveInputPath, resolveOutputPath } from '../../config/loader.js'
 import type { SupportedChain } from '../../rpc/client.js'
 import type { MappingKeysFile } from '../../core/snapshot/mapping-keys.js'
 
@@ -69,7 +69,7 @@ export const snapshotCommand = new Command('snapshot')
   .description('Capture a semantic storage snapshot of a deployed contract')
   .argument('<address>', 'Contract address (0x...)')
   .requiredOption('--artifact <path>', 'Path to Foundry or Hardhat build artifact JSON')
-  .option('--chain <chain>', 'Target chain (mainnet, arbitrum, optimism, polygon, base)', 'mainnet')
+  .option('--chain <chain>', 'Target chain (mainnet, arbitrum, optimism, polygon, base)')
   .option('--block <number>', 'Block number for snapshot (defaults to latest)')
   .option('--only <vars>', 'Comma-separated list of variable names to snapshot')
   .option('--mapping-keys <path>', 'Path to mapping keys JSON file')
@@ -85,8 +85,13 @@ export const snapshotCommand = new Command('snapshot')
        * 1. Validate inputs
        * ------------------------------------------------------------- */
       const validAddress = validateAddress(address)
-      const chain = validateChain(options.chain)
       const config = loadConfig()
+      const chain = validateChain((options.chain as string | undefined) ?? config.defaultChain)
+      const artifactPath = resolveInputPath(options.artifact as string, config.artifactsDir)
+      const outPath = resolveOutputPath(
+        (options.out as string | undefined) ?? 'snapshot.json',
+        config.snapshotsDir
+      )
 
       /* ---------------------------------------------------------------
        * 2. Parse optional flags into typed values
@@ -100,7 +105,8 @@ export const snapshotCommand = new Command('snapshot')
       /** Load and validate mapping keys when the flag is provided */
       let mappingKeys: MappingKeysFile | undefined
       if (options.mappingKeys) {
-        mappingKeys = loadMappingKeys(options.mappingKeys as string)
+        const mappingKeysPath = resolveInputPath(options.mappingKeys as string, config.snapshotsDir)
+        mappingKeys = loadMappingKeys(mappingKeysPath)
         const validation = validateMappingKeys(mappingKeys)
         if (!validation.valid) {
           console.error(chalk.red(`Invalid mapping keys file:`))
@@ -121,13 +127,13 @@ export const snapshotCommand = new Command('snapshot')
        * ------------------------------------------------------------- */
       const captureOptions = {
         address: validAddress,
-        artifactPath: options.artifact as string,
+        artifactPath,
         chain,
         blockNumber,
         rpcUrl,
         only,
         mappingKeys,
-        outPath: options.out as string,
+        outPath,
         dryRun: options.dryRun as boolean,
       }
 

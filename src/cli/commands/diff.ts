@@ -19,6 +19,7 @@
 import { Command } from 'commander'
 import chalk from 'chalk'
 
+import { loadConfig, resolveInputPath } from '../../config/loader.js'
 import { loadSnapshot } from '../../core/snapshot/store.js'
 import { validateSnapshotFile } from '../../core/snapshot/store.js'
 import { validateArtifact } from '../../core/artifact-parser/normalizer.js'
@@ -90,30 +91,45 @@ export const diffCommand = new Command('diff')
   .description('Compare two snapshot files and report semantic storage changes')
   .argument('<before>', 'Path to the "before" snapshot JSON')
   .argument('<after>', 'Path to the "after" snapshot JSON')
-  .option('--output <format>', 'Output format: terminal (default) | json | markdown', 'terminal')
+  .option('--output <format>', 'Output format: terminal (default) | json | markdown')
+  .option('--dry-run', 'Validate inputs and preview the diff plan without printing the full diff', false)
   .action(async (beforePath: string, afterPath: string, options) => {
     try {
+      const config = loadConfig()
+      const resolvedBeforePath = resolveInputPath(beforePath, config.snapshotsDir)
+      const resolvedAfterPath = resolveInputPath(afterPath, config.snapshotsDir)
+
       /* ---------------------------------------------------------------
        * 1. Validate both input files before loading
        * ------------------------------------------------------------- */
-      assertValidSnapshotInput(beforePath)
-      assertValidSnapshotInput(afterPath)
+      assertValidSnapshotInput(resolvedBeforePath)
+      assertValidSnapshotInput(resolvedAfterPath)
 
       /* ---------------------------------------------------------------
        * 2. Load both snapshot files from disk
        * ------------------------------------------------------------- */
-      const before = loadSnapshot(beforePath)
-      const after = loadSnapshot(afterPath)
+      const before = loadSnapshot(resolvedBeforePath)
+      const after = loadSnapshot(resolvedAfterPath)
 
       /* ---------------------------------------------------------------
        * 3. Compute the semantic diff between the two snapshots
        * ------------------------------------------------------------- */
       const diff = diffSnapshots(before, after)
 
+      if (options.dryRun) {
+        console.log(chalk.cyan('🔍 Dry-run mode — no formatted diff will be emitted\n'))
+        console.log(`Would compare ${before.contractName} snapshots:`)
+        console.log(chalk.dim(`  Before: ${resolvedBeforePath} (${before.variables.length} variables, block ${before.blockNumber})`))
+        console.log(chalk.dim(`  After:  ${resolvedAfterPath} (${after.variables.length} variables, block ${after.blockNumber})`))
+        console.log(chalk.dim(`  Summary: ${diff.summary.changed} changed, ${diff.summary.added} added, ${diff.summary.removed} removed, ${diff.summary.unchanged} unchanged`))
+        console.log(chalk.dim('\nNo diff output written (--dry-run)'))
+        return
+      }
+
       /* ---------------------------------------------------------------
        * 4. Format and output the result
        * ------------------------------------------------------------- */
-      const format = validateFormat(options.output as string)
+      const format = validateFormat((options.output as string | undefined) ?? config.output)
       const output = formatOutput(diff, format)
 
       console.log(output)
