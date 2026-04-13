@@ -1,7 +1,30 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, beforeEach, afterEach } from 'vitest'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 
 import { ConfigSchema, DEFAULT_CONFIG } from '../../config/schema.js'
-import { mergeConfigs, resolveInputPath, resolveOutputPath } from '../../config/loader.js'
+import {
+  buildDefaultConfigFile,
+  clearConfigCache,
+  initConfigFile,
+  loadConfig,
+  mergeConfigs,
+  resolveInputPath,
+  resolveOutputPath,
+} from '../../config/loader.js'
+
+let tempDir: string
+
+beforeEach(() => {
+  tempDir = mkdtempSync(join(tmpdir(), 'slotprobe-config-'))
+  clearConfigCache()
+})
+
+afterEach(() => {
+  clearConfigCache()
+  rmSync(tempDir, { recursive: true, force: true })
+})
 
 describe('config schema', () => {
   it('accepts the README configuration shape and normalizes it to the runtime config', () => {
@@ -82,5 +105,28 @@ describe('config helpers', () => {
   it('resolves bare output filenames into the configured base directory', () => {
     expect(resolveOutputPath('snapshot.json', './snapshots')).toBe('snapshots/snapshot.json')
     expect(resolveOutputPath('./nested/snapshot.json', './snapshots')).toBe('./nested/snapshot.json')
+  })
+
+  it('throws a helpful error when no config file exists', () => {
+    expect(() => loadConfig(tempDir)).toThrow(/Run "slotprobe init" to create slotprobe\.config\.json/)
+  })
+
+  it('writes a starter config file during init', () => {
+    const configPath = initConfigFile(tempDir)
+
+    expect(existsSync(configPath)).toBe(true)
+
+    const raw = JSON.parse(readFileSync(configPath, 'utf-8'))
+    expect(raw.defaultChain).toBe(DEFAULT_CONFIG.defaultChain)
+    expect(raw.rpcConfig).toEqual(DEFAULT_CONFIG.rpc)
+    expect(raw.artifactsDir).toBe(DEFAULT_CONFIG.artifactsDir)
+    expect(raw.snapshotsDir).toBe(DEFAULT_CONFIG.snapshotsDir)
+    expect(raw.chains.mainnet).toContain('your-api-key')
+  })
+
+  it('refuses to overwrite an existing config during init', () => {
+    writeFileSync(join(tempDir, 'slotprobe.config.json'), buildDefaultConfigFile(), 'utf-8')
+
+    expect(() => initConfigFile(tempDir)).toThrow(/Configuration already exists/)
   })
 })

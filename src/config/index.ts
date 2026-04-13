@@ -5,9 +5,11 @@
  */
 
 export {
+  buildDefaultConfigFile,
   loadConfig,
   loadConfigFromPath,
   findConfigPath,
+  initConfigFile,
   mergeConfigs,
   clearConfigCache,
   resolveInputPath,

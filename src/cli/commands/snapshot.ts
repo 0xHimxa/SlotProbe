@@ -76,7 +76,7 @@ export const snapshotCommand = new Command('snapshot')
   .option('--out <path>', 'Output file path for snapshot JSON', 'snapshot.json')
   .option('--rpc <url>', 'Custom RPC URL')
   .option('--dry-run', 'Preview what would be captured without reading storage', false)
-  .option('--output <format>', 'Output format (terminal, json, markdown)', 'terminal')
+  .option('--output <format>', 'Output format (terminal, json, markdown)')
   .action(async (address: string, options) => {
     const spinner = ora()
 
@@ -121,7 +121,6 @@ export const snapshotCommand = new Command('snapshot')
       const rpcUrl = (options.rpc as string | undefined)
         ?? config.chains?.[chain]
         ?? undefined
-
       /* ---------------------------------------------------------------
        * 3. Build capture options shared by both dry-run and real capture
        * ------------------------------------------------------------- */

@@ -9,7 +9,7 @@
  * @module config/loader
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync } from "node:fs";
 import { join, dirname, isAbsolute } from "node:path";
 import { ConfigSchema, DEFAULT_CONFIG, type Config } from "./schema.js";
 
@@ -18,6 +18,7 @@ const CONFIG_FILES = [
   ".slotprobe.json",
   "slotprobe.config.json",
 ];
+const DEFAULT_CONFIG_FILENAME = "slotprobe.config.json";
 
 /**
  * Small in-process cache keyed by the search directory passed to loadConfig.
@@ -80,9 +81,13 @@ export function loadConfig(searchDir?: string): Config {
     }
   }
 
+  if (lastError) {
+    throw new Error(lastError);
+  }
+
   throw new Error(
-    lastError ??
-      `No configuration file found in "${searchPath}". Expected one of: ${CONFIG_FILES.join(", ")}`,
+    `No configuration file found in "${searchPath}". Expected one of: ${CONFIG_FILES.join(", ")}. ` +
+      `Run "slotprobe init" to create ${DEFAULT_CONFIG_FILENAME}.`,
   );
 }
 /**
@@ -134,10 +139,7 @@ export function resolveInputPath(
     return resolved;
   }
 
-  // If we get here, we couldn't find the file in either place
-  throw new Error(
-    `Input path could not be resolved: "${inputPath}" (checked in "${configuredDir}")`,
-  );
+  return inputPath;
 }
 
 /**
@@ -173,6 +175,43 @@ export function findConfigPath(searchDir?: string): string | null {
   }
 
   return null;
+}
+
+/**
+ * Builds the starter config JSON written by `slotprobe init`.
+ */
+export function buildDefaultConfigFile(): string {
+  return `${JSON.stringify(
+    {
+      defaultChain: DEFAULT_CONFIG.defaultChain,
+      rpcConfig: DEFAULT_CONFIG.rpc,
+      output: DEFAULT_CONFIG.output,
+      chains: {
+        mainnet: "https://eth-mainnet.g.alchemy.com/v2/your-api-key",
+      },
+      artifactsDir: DEFAULT_CONFIG.artifactsDir,
+      snapshotsDir: DEFAULT_CONFIG.snapshotsDir,
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+/**
+ * Writes a starter config file to disk in the requested directory.
+ */
+export function initConfigFile(searchDir?: string): string {
+  const searchPath = searchDir ?? process.cwd();
+  const existingConfig = findConfigPath(searchPath);
+
+  if (existingConfig) {
+    throw new Error(`Configuration already exists at "${existingConfig}"`);
+  }
+
+  const configPath = join(searchPath, DEFAULT_CONFIG_FILENAME);
+  writeFileSync(configPath, buildDefaultConfigFile(), "utf-8");
+  clearConfigCache();
+  return configPath;
 }
 
 /**

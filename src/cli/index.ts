@@ -14,6 +14,7 @@
  *   slotprobe diff <before> <after> [options]
  *   slotprobe check-collision <old> <new> [options]
  *   slotprobe generate-migration <before> <after> [options]
+ *   slotprobe init
  *
  * Each subcommand is defined in its own module under ./commands/ and
  * wires directly into the core logic modules under ../core/.
@@ -26,6 +27,7 @@ import { snapshotCommand } from './commands/snapshot.js'
 import { diffCommand } from './commands/diff.js'
 import { checkCollisionCommand } from './commands/check-collision.js'
 import { generateMigrationCommand } from './commands/generate-migration.js'
+import { initCommand } from './commands/init.js'
 
 /**
  * Root Commander program instance.
@@ -43,6 +45,7 @@ program.addCommand(snapshotCommand)
 program.addCommand(diffCommand)
 program.addCommand(checkCollisionCommand)
 program.addCommand(generateMigrationCommand)
+program.addCommand(initCommand)
 
 /** Parse argv and dispatch to the matched subcommand */
 program.parse()

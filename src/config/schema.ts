@@ -77,6 +77,7 @@ export const DEFAULT_CONFIG: Config = {
     backoffMs: 1000,
   },
   output: 'terminal',
+  chains: undefined,
   artifactsDir: './out',
   snapshotsDir: './snapshots',
  

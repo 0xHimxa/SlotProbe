@@ -65,7 +65,7 @@ export const generateMigrationCommand = new Command('generate-migration')
   .option('--verify', 'Run verification on an Anvil fork after generation', false)
   .option('--out <path>', 'Output file path for the generated script')
   .option('--dry-run', 'Preview the migration changes without writing a file', false)
-  .option('--rpc-url <url>', 'RPC URL for the Anvil fork (required with --verify)')
+  .option('--rpc-url <url>', 'RPC URL for the Anvil fork (overrides configured chain RPC)')
   .option('--artifact <path>', 'Path to the contract artifact used to recapture state during --verify')
   .action(async (beforePath: string, afterPath: string, options) => {
     try {
@@ -132,13 +132,21 @@ export const generateMigrationCommand = new Command('generate-migration')
        * 4. Optional verification on an Anvil fork
        * ------------------------------------------------------------- */
       if (options.verify) {
-        if (!options.rpcUrl) {
-          console.error(chalk.red('--rpc-url is required when using --verify'))
+        if (!options.artifact) {
+          console.error(chalk.red('--artifact is required when using --verify'))
           process.exit(1)
         }
 
-        if (!options.artifact) {
-          console.error(chalk.red('--artifact is required when using --verify'))
+        const verifyRpcUrl = (options.rpcUrl as string | undefined)
+          ?? config.chains?.[before.chain]
+          ?? config.chains?.[after.chain]
+
+        if (!verifyRpcUrl) {
+          console.error(
+            chalk.red(
+              `No RPC URL available for verification. Add "${before.chain}" to config.chains or pass --rpc-url.`
+            )
+          )
           process.exit(1)
         }
 
@@ -153,7 +161,7 @@ export const generateMigrationCommand = new Command('generate-migration')
 
         const result = await verifyMigration({
           scriptPath: outPath,
-          rpcUrl: options.rpcUrl as string,
+          rpcUrl: verifyRpcUrl,
           beforeSnapshotPath: resolvedBeforePath,
           afterSnapshotPath: resolvedAfterPath,
           artifactPath,
