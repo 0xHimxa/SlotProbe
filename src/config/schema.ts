@@ -79,4 +79,5 @@ export const DEFAULT_CONFIG: Config = {
   output: 'terminal',
   artifactsDir: './out',
   snapshotsDir: './snapshots',
+ 
 }

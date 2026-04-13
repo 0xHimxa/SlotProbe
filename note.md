@@ -25,6 +25,10 @@ export function validateArtifact(artifactPath: string): { valid: boolean; error?
   try {
 ```
 
+probbaly nned to add trycatch  to zod for better error handling
+
+
+
 
 
 
