@@ -19,7 +19,7 @@ import { mainnet, arbitrum, base, optimism, polygon } from 'viem/chains'
 const CHAINS = { mainnet, arbitrum, base, optimism, polygon } as const
 export type SupportedChain = keyof typeof CHAINS
 const DEFAULT_MULTICALL_BATCH_SIZE = 400
-const DEFAULT_MULTICALL_WAIT_MS = 1000
+const DEFAULT_MULTICALL_WAIT_MS = 2000
 
 /** Chain configuration map - add custom chains here */
 export const CHAIN_CONFIG: Record<SupportedChain, Chain> = CHAINS
