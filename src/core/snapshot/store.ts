@@ -16,7 +16,7 @@
  * @module core/snapshot/store
  */
 
-import { writeFileSync, readFileSync } from 'node:fs'
+import { writeFileSync, readFileSync, existsSync} from 'node:fs'
 import type { Snapshot } from './types.js'
 
 /** Marker prefix used to encode bigint values in JSON strings */
@@ -65,6 +65,10 @@ export function saveSnapshot(snapshot: Snapshot, path: string): void {
  *   console.log(snap.contractName) // 'Token'
  */
 export function loadSnapshot(path: string): Snapshot {
+  if (!existsSync(path)) {
+    throw new Error(`Snapshot file not found: ${path}`)
+  }
+  
   const raw = JSON.parse(readFileSync(path, 'utf-8'), (key, value) => {
     if (typeof value === 'string' && value.startsWith(BIGINT_MARKER)) {
       return BigInt(value.slice(BIGINT_MARKER.length))

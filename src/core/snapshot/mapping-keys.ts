@@ -21,7 +21,7 @@
  * @module core/snapshot/mapping-keys
  */
 
-import  { readFileSync } from 'node:fs'
+import  { readFileSync,existsSync } from 'node:fs'
 
 /**
  * Shape of a mapping keys JSON file.
@@ -56,7 +56,9 @@ export interface MappingKeysFile {
  *   // { balances: ['0xdead...beef'], allowances: ['0xcafe...babe'] }
  */
 export function loadMappingKeys(filePath: string): MappingKeysFile {
-
+  if (!existsSync(filePath)) {
+    throw new Error(`MappingKeys file not found: ${filePath}`)
+  }
   return JSON.parse(readFileSync(filePath, 'utf-8'))
 }
 

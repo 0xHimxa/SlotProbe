@@ -117,6 +117,7 @@ export function listVariables(layout: StorageLayout): string[] {
  *     }
  *   }
  */
+//Nore add cli command for this
 export function groupBySlot(layout: StorageLayout): Map<string, StorageVariable[]> {
   const groups = new Map<string, StorageVariable[]>()
   
