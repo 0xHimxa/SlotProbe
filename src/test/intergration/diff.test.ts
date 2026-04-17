@@ -53,6 +53,7 @@ describe('Diff Integration', () => {
     expect(diff.summary.changed).toBe(0)
     expect(diff.summary.added).toBe(0)
     expect(diff.summary.removed).toBe(0)
+    expect(diff.summary.renamed).toBe(0)
     expect(diff.summary.unchanged).toBe(1)
   })
 
@@ -115,6 +116,96 @@ describe('Diff Integration', () => {
 
     expect(diff.summary.removed).toBe(1)
     expect(diff.entries[0]!.status).toBe('removed')
+  })
+
+  it('detects renamed variables without classifying them as removed', () => {
+    const before = createSnapshot({
+      variables: [
+        { name: 'owner', solidityType: 'address', slot: '2', offset: 0, rawValue: '0xdead', decodedValue: '0xdead' },
+      ],
+    })
+
+    const after = createSnapshot({
+      variables: [
+        { name: 'admin', solidityType: 'address', slot: '2', offset: 0, rawValue: '0xdead', decodedValue: '0xdead' },
+      ],
+    })
+
+    const diff = diffSnapshots(before, after)
+
+    expect(diff.summary.renamed).toBe(1)
+    expect(diff.summary.removed).toBe(0)
+    expect(diff.summary.added).toBe(0)
+    expect(diff.entries[0]!.status).toBe('renamed')
+    expect(diff.entries[0]!.previousName).toBe('owner')
+    expect(diff.entries[0]!.name).toBe('admin')
+  })
+
+  it('does not treat reordered packed values as a rename', () => {
+    const before = createSnapshot({
+      variables: [
+        { name: 'flagA', solidityType: 'uint128', slot: '0', offset: 0, rawValue: '0x00000000000000000000000000000001', decodedValue: '1' },
+      ],
+    })
+
+    const after = createSnapshot({
+      variables: [
+        { name: 'flagB', solidityType: 'uint128', slot: '0', offset: 0, rawValue: '0x00000000000000000000000000000002', decodedValue: '2' },
+      ],
+    })
+
+    const diff = diffSnapshots(before, after)
+
+    expect(diff.summary.renamed).toBe(0)
+    expect(diff.summary.removed).toBe(1)
+    expect(diff.summary.added).toBe(1)
+    expect(diff.entries.map((entry) => entry.status)).toEqual(['removed', 'added'])
+  })
+
+  it('flags packed reorders as removed plus added instead of renames', () => {
+    const before = createSnapshot({
+      variables: [
+        { name: 'a', solidityType: 'uint128', slot: '0', offset: 0, rawValue: '0x01', decodedValue: '1' },
+        { name: 'b', solidityType: 'uint128', slot: '0', offset: 16, rawValue: '0x02', decodedValue: '2' },
+      ],
+    })
+
+    const after = createSnapshot({
+      variables: [
+        { name: 'c', solidityType: 'uint128', slot: '0', offset: 0, rawValue: '0x01', decodedValue: '1' },
+        { name: 'a', solidityType: 'uint128', slot: '0', offset: 16, rawValue: '0x02', decodedValue: '2' },
+      ],
+    })
+
+    const diff = diffSnapshots(before, after)
+
+    expect(diff.summary.renamed).toBe(0)
+    expect(diff.summary.changed).toBe(0)
+    expect(diff.summary.added).toBe(2)
+    expect(diff.summary.removed).toBe(2)
+    expect(diff.entries.map((entry) => entry.status)).toEqual(['removed', 'removed', 'added', 'added'])
+  })
+
+  it('flags same-name storage moves as removed plus added', () => {
+    const before = createSnapshot({
+      variables: [
+        { name: 'fee', solidityType: 'uint128', slot: '0', offset: 0, rawValue: '0x01', decodedValue: '1' },
+      ],
+    })
+
+    const after = createSnapshot({
+      variables: [
+        { name: 'fee', solidityType: 'uint128', slot: '0', offset: 16, rawValue: '0x01', decodedValue: '1' },
+      ],
+    })
+
+    const diff = diffSnapshots(before, after)
+
+    expect(diff.summary.changed).toBe(0)
+    expect(diff.summary.renamed).toBe(0)
+    expect(diff.summary.removed).toBe(1)
+    expect(diff.summary.added).toBe(1)
+    expect(diff.entries.map((entry) => entry.status)).toEqual(['removed', 'added'])
   })
 
   /**

@@ -313,7 +313,7 @@ function formatVerificationFailure(prefix: string, diff: ReturnType<typeof diffS
   const changedEntries = diff.entries.filter((entry) => entry.status !== 'unchanged')
   const lines = [
     prefix,
-    `Summary: ${diff.summary.changed} changed, ${diff.summary.added} added, ${diff.summary.removed} removed.`,
+    `Summary: ${diff.summary.changed} changed, ${diff.summary.added} added, ${diff.summary.removed} removed, ${diff.summary.renamed} renamed.`,
   ]
 
   for (const entry of changedEntries.slice(0, 10)) {
@@ -324,6 +324,11 @@ function formatVerificationFailure(prefix: string, diff: ReturnType<typeof diffS
 
     if (entry.status === 'added') {
       lines.push(`- ${entry.name}: unexpected value ${stringifyValue(entry.after)}`)
+      continue
+    }
+
+    if (entry.status === 'renamed') {
+      lines.push(`- ${entry.previousName}: expected renamed variable to appear as ${entry.name}`)
       continue
     }
 

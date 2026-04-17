@@ -22,8 +22,9 @@ import type { DiffResult } from '../../core/diff/types.js'
  *   - Changed variables show a red "before" line and green "after" line
  *   - Added variables are green with a "(new)" tag
  *   - Removed variables are red with a "(removed)" tag
+ *   - Renamed variables show both names with a "(renamed)" tag
  *
- * A summary line at the bottom counts all four categories.
+ * A summary line at the bottom counts all diff categories.
  *
  * @param diff - Structured diff result from `diffSnapshots`
  * @returns Multi-line coloured string ready for console.log
@@ -49,6 +50,8 @@ export function formatDiffTerminal(diff: DiffResult): string {
       lines.push(chalk.green(`+ ${entry.name}: ${entry.after} (new)`))
     } else if (entry.status === 'removed') {
       lines.push(chalk.red(`- ${entry.name}: ${entry.before} (removed)`))
+    } else if (entry.status === 'renamed') {
+      lines.push(chalk.yellow(`~ ${entry.previousName} -> ${entry.name}: ${entry.after} (renamed)`))
     }
   }
 
@@ -57,6 +60,7 @@ export function formatDiffTerminal(diff: DiffResult): string {
     `Summary: ${diff.summary.changed} changed, ` +
     `${diff.summary.added} added, ` +
     `${diff.summary.removed} removed, ` +
+    `${diff.summary.renamed} renamed, ` +
     `${diff.summary.unchanged} unchanged`
   ))
 

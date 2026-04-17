@@ -30,6 +30,9 @@ export function formatDiffSummary(diff: DiffResult): string {
   if (diff.summary.removed > 0) {
     parts.push(`${diff.summary.removed} removed`)
   }
+  if (diff.summary.renamed > 0) {
+    parts.push(`${diff.summary.renamed} renamed`)
+  }
   if (diff.summary.unchanged > 0) {
     parts.push(`${diff.summary.unchanged} unchanged`)
   }
@@ -67,6 +70,8 @@ export function formatEntry(entry: DiffEntry): string {
       return `+ ${entry.name}: ${entry.after} (new)`
     case 'removed':
       return `- ${entry.name}: ${entry.before} (removed)`
+    case 'renamed':
+      return `~ ${entry.previousName}: ${entry.before}\n~ ${entry.name}: ${entry.after} (renamed)`
   }
 }
 
@@ -88,6 +93,8 @@ export function getChangeOverview(diff: DiffResult): string[] {
       overview.push(`${entry.name}: (new) ${entry.after}`)
     } else if (entry.status === 'removed') {
       overview.push(`${entry.name}: ${entry.before} (removed)`)
+    } else if (entry.status === 'renamed') {
+      overview.push(`${entry.previousName} → ${entry.name}: ${entry.after} (renamed)`)
     }
   }
 

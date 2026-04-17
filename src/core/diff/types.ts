@@ -17,9 +17,10 @@
  *   - `'added'`     — Variable exists only in the "after" snapshot
  *   - `'removed'`   — Variable exists only in the "before" snapshot
  *   - `'changed'`   — Variable exists in both but with different decoded values
+ *   - `'renamed'`   — Variable kept the same storage/type identity but was renamed
  *   - `'unchanged'` — Variable exists in both with identical decoded values
  */
-export type DiffStatus = 'added' | 'removed' | 'changed' | 'unchanged'
+export type DiffStatus = 'added' | 'removed' | 'changed' | 'renamed' | 'unchanged'
 
 /**
  * A single variable's diff entry, carrying its status and value(s).
@@ -28,6 +29,7 @@ export type DiffStatus = 'added' | 'removed' | 'changed' | 'unchanged'
  *   - `changed`:   both `before` and `after` are present
  *   - `added`:     only `after` is present
  *   - `removed`:   only `before` is present
+ *   - `renamed`:   both `before` and `after` are present, with `previousName`
  *   - `unchanged`: only `before` is present (value is identical in both)
  */
 export interface DiffEntry {
@@ -37,6 +39,8 @@ export interface DiffEntry {
   solidityType: string
   /** Change classification for this variable */
   status: DiffStatus
+  /** Previous variable name when the entry represents a rename */
+  previousName?: string
   /** Decoded value from the "before" snapshot (present for changed/removed/unchanged) */
   before?: unknown
   /** Decoded value from the "after" snapshot (present for changed/added) */
@@ -76,6 +80,8 @@ export interface DiffResult {
     added: number
     /** Number of variables present only in the "before" snapshot */
     removed: number
+    /** Number of variables that retained storage identity but changed names */
+    renamed: number
     /** Number of variables with identical values in both snapshots */
     unchanged: number
   }

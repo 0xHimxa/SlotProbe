@@ -121,7 +121,7 @@ export const diffCommand = new Command('diff')
         console.log(`Would compare ${before.contractName} snapshots:`)
         console.log(chalk.dim(`  Before: ${resolvedBeforePath} (${before.variables.length} variables, block ${before.blockNumber})`))
         console.log(chalk.dim(`  After:  ${resolvedAfterPath} (${after.variables.length} variables, block ${after.blockNumber})`))
-        console.log(chalk.dim(`  Summary: ${diff.summary.changed} changed, ${diff.summary.added} added, ${diff.summary.removed} removed, ${diff.summary.unchanged} unchanged`))
+        console.log(chalk.dim(`  Summary: ${diff.summary.changed} changed, ${diff.summary.added} added, ${diff.summary.removed} removed, ${diff.summary.renamed} renamed, ${diff.summary.unchanged} unchanged`))
         console.log(chalk.dim('\nNo diff output written (--dry-run)'))
         return
       }
@@ -137,7 +137,7 @@ export const diffCommand = new Command('diff')
       /* ---------------------------------------------------------------
        * 5. Exit with code 1 if there are changes (useful for CI gates)
        * ------------------------------------------------------------- */
-      if (diff.summary.changed > 0 || diff.summary.added > 0 || diff.summary.removed > 0) {
+      if (diff.summary.changed > 0 || diff.summary.added > 0 || diff.summary.removed > 0 || diff.summary.renamed > 0) {
         process.exit(1)
       }
 

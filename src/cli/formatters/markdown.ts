@@ -16,7 +16,7 @@ import type { CollisionResult } from '../../core/collision/detector.js'
  *
  * Unchanged variables are excluded from the table to keep it concise.
  * Each row shows the variable name, Solidity type, before/after values,
- * and a status badge (Changed, Added, or Removed).
+ * and a status badge (Changed, Added, Removed, or Renamed).
  *
  * @param diff - Structured diff result from `diffSnapshots`
  * @returns Multi-line Markdown string with table and summary
@@ -47,16 +47,20 @@ export function formatDiffMarkdown(diff: DiffResult): string {
   for (const entry of changedEntries) {
     const status = entry.status === 'changed' ? 'Changed' :
                   entry.status === 'added' ? 'Added' :
-                  'Removed'
+                  entry.status === 'removed' ? 'Removed' :
+                  'Renamed'
     const before = entry.before ?? '—'
     const after = entry.after ?? '—'
-    
-    lines.push(`| \`${entry.name}\` | \`${entry.solidityType}\` | ${before} | ${after} | ${status} |`)
+    const name = entry.status === 'renamed'
+      ? `\`${entry.previousName}\` -> \`${entry.name}\``
+      : `\`${entry.name}\``
+
+    lines.push(`| ${name} | \`${entry.solidityType}\` | ${before} | ${after} | ${status} |`)
   }
 
   lines.push('')
   lines.push(
-    `**${diff.summary.changed} changed · ${diff.summary.added} added · ${diff.summary.removed} removed**`
+    `**${diff.summary.changed} changed · ${diff.summary.added} added · ${diff.summary.removed} removed · ${diff.summary.renamed} renamed**`
   )
 
   return lines.join('\n')

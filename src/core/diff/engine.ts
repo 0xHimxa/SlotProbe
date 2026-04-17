@@ -16,6 +16,45 @@
 import type { Snapshot } from '../snapshot/types.js'
 import type { DiffEntry, DiffResult, DiffStatus } from './types.js'
 
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value)
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(',')}]`
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, nestedValue]) => `${JSON.stringify(key)}:${stableStringify(nestedValue)}`)
+
+  return `{${entries.join(',')}}`
+}
+
+function isSameDecodedValue(left: unknown, right: unknown): boolean {
+  return stableStringify(left) === stableStringify(right)
+}
+
+function toStorageIdentity(entry: Snapshot['variables'][number]): string {
+  return `${entry.slot}:${entry.offset}:${entry.solidityType}`
+}
+
+function isSafeRenameMatch(
+  beforeEntry: Snapshot['variables'][number],
+  afterEntry: Snapshot['variables'][number],
+  beforeMap: Map<string, Snapshot['variables'][number]>,
+  afterMap: Map<string, Snapshot['variables'][number]>
+): boolean {
+  return (
+    toStorageIdentity(beforeEntry) === toStorageIdentity(afterEntry) &&
+    !beforeMap.has(afterEntry.name) &&
+    !afterMap.has(beforeEntry.name) &&
+    beforeEntry.rawValue === afterEntry.rawValue &&
+    isSameDecodedValue(beforeEntry.decodedValue, afterEntry.decodedValue)
+  )
+}
+
 /**
  * Compares two snapshots and produces a semantic diff.
  *
@@ -37,37 +76,74 @@ export function diffSnapshots(before: Snapshot, after: Snapshot): DiffResult {
   const entries: DiffEntry[] = []
   const afterMap = new Map(after.variables.map((v) => [v.name, v]))
   const beforeMap = new Map(before.variables.map((v) => [v.name, v]))
+  const matchedAfterNames = new Set<string>()
+  const unmatchedAfterByIdentity = new Map<string, Snapshot['variables'][number][]>()
+
+  for (const entry of after.variables) {
+    const identity = toStorageIdentity(entry)
+    const existing = unmatchedAfterByIdentity.get(identity) ?? []
+    existing.push(entry)
+    unmatchedAfterByIdentity.set(identity, existing)
+  }
 
   for (const entry of before.variables) {
     const afterEntry = afterMap.get(entry.name)
 
-    if (!afterEntry) {
-      entries.push({
-        name: entry.name,
-        solidityType: entry.solidityType,
-        status: 'removed',
-        before: entry.decodedValue,
-      })
-    } else if (JSON.stringify(entry.decodedValue) !== JSON.stringify(afterEntry.decodedValue)) {
-      entries.push({
-        name: entry.name,
-        solidityType: entry.solidityType,
-        status: 'changed',
-        before: entry.decodedValue,
-        after: afterEntry.decodedValue,
-      })
-    } else {
-      entries.push({
-        name: entry.name,
-        solidityType: entry.solidityType,
-        status: 'unchanged',
-        before: entry.decodedValue,
-      })
+    if (afterEntry && toStorageIdentity(entry) === toStorageIdentity(afterEntry)) {
+      matchedAfterNames.add(afterEntry.name)
+
+      if (!isSameDecodedValue(entry.decodedValue, afterEntry.decodedValue)) {
+        entries.push({
+          name: entry.name,
+          solidityType: entry.solidityType,
+          status: 'changed',
+          before: entry.decodedValue,
+          after: afterEntry.decodedValue,
+        })
+      } else {
+        entries.push({
+          name: entry.name,
+          solidityType: entry.solidityType,
+          status: 'unchanged',
+          before: entry.decodedValue,
+        })
+      }
+
+      continue
     }
+
+    const identity = toStorageIdentity(entry)
+    const renamedCandidates = unmatchedAfterByIdentity.get(identity) ?? []
+    const renamedMatch = renamedCandidates.find(
+      (candidate) =>
+        !matchedAfterNames.has(candidate.name) &&
+        candidate.name !== entry.name &&
+        isSafeRenameMatch(entry, candidate, beforeMap, afterMap)
+    )
+
+    if (renamedMatch) {
+      matchedAfterNames.add(renamedMatch.name)
+      entries.push({
+        name: renamedMatch.name,
+        previousName: entry.name,
+        solidityType: entry.solidityType,
+        status: 'renamed',
+        before: entry.decodedValue,
+        after: renamedMatch.decodedValue,
+      })
+      continue
+    }
+
+    entries.push({
+      name: entry.name,
+      solidityType: entry.solidityType,
+      status: 'removed',
+      before: entry.decodedValue,
+    })
   }
 
   for (const entry of after.variables) {
-    if (!beforeMap.has(entry.name)) {
+    if (!matchedAfterNames.has(entry.name)) {
       entries.push({
         name: entry.name,
         solidityType: entry.solidityType,
@@ -81,6 +157,7 @@ export function diffSnapshots(before: Snapshot, after: Snapshot): DiffResult {
     changed: entries.filter((e) => e.status === 'changed').length,
     added: entries.filter((e) => e.status === 'added').length,
     removed: entries.filter((e) => e.status === 'removed').length,
+    renamed: entries.filter((e) => e.status === 'renamed').length,
     unchanged: entries.filter((e) => e.status === 'unchanged').length,
   }
 
@@ -143,5 +220,6 @@ export function getChangedEntries(diff: DiffResult): DiffEntry[] {
 export function hasChanges(diff: DiffResult): boolean {
   return diff.summary.changed > 0 || 
          diff.summary.added > 0 || 
-         diff.summary.removed > 0
+         diff.summary.removed > 0 ||
+         diff.summary.renamed > 0
 }
