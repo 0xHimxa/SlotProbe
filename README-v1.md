@@ -299,12 +299,23 @@ Full mapping enumeration (reading every key in a mapping) is a future feature â€
 SlotProbe snapshot 0x... --mapping-keys positions.json
 ```
 
-Where `positions.json` is an array of keys you care about:
+Where `positions.json` maps each mapping path to the keys you care about:
 ```json
-["0xabc...123", "0xdef...456", "0x789...abc"]
+{
+  "positions": ["0xabc...123", "0xdef...456", "0x789...abc"]
+}
 ```
 
-SlotProbe will read and decode those specific mapping slots. Full enumeration is on the v2 roadmap.
+For nested mappings, use the expanded parent path as the JSON key:
+```json
+{
+  "balances": ["0xOuter1", "0xOuter2"],
+  "balances[0xOuter1]": ["0xInner1", "0xInner2"],
+  "balances[0xOuter2]": ["0xInner3"]
+}
+```
+
+For `mapping(address => mapping(address => uint256)) balances`, SlotProbe first expands `balances`, then uses entries like `balances[0xOuter1]` to discover the inner mapping keys. Full enumeration is on the v2 roadmap.
 
 ---
 
@@ -1005,7 +1016,11 @@ export function applyOnlyFilter(
 
 ```typescript
 // src/core/snapshot/mapping-keys.ts
-// positions.json format: { "variableName": ["0xkey1", "0xkey2"] }
+// positions.json format:
+// {
+//   "variableName": ["0xkey1", "0xkey2"],
+//   "variableName[0xkey1]": ["0xnestedKey1"]
+// }
 import { readFileSync } from 'fs'
 import { mappingSlot } from '../storage-engine/slot-calculator'
 
@@ -1013,6 +1028,8 @@ export function loadMappingKeys(filePath: string): Record<string, `0x${string}`[
   return JSON.parse(readFileSync(filePath, 'utf-8'))
 }
 ```
+
+Top-level mappings use the Solidity variable name. Nested mappings use the full expanded path of their parent entry because the nested mapping itself has no standalone Solidity name.
 
 **Step 3.4 â€” Dry-run mode for snapshot**
 
@@ -1495,7 +1512,7 @@ Options:
   --block <number>         Block number (default: latest)
   --artifact <path>        Path to build artifact JSON
   --only <vars>            Comma-separated variable names to include
-  --mapping-keys <path>    JSON file with mapping keys: { "varName": ["0xkey1"] }
+  --mapping-keys <path>    JSON file with mapping keys: { "varName": ["0xkey1"], "varName[0xkey1]": ["0xnestedKey1"] }
   --out <path>             Output path (default: snapshot.json)
   --dry-run                Preview RPC calls without executing
 ```

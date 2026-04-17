@@ -7,13 +7,25 @@
  * cannot enumerate mapping entries automatically.
  *
  * Instead, users provide a JSON file listing the specific keys they want to
- * read for each mapping variable. The format is:
+ * read for each mapping variable. Top-level mappings use the Solidity variable
+ * name as the JSON key. Nested mappings use the fully expanded parent path
+ * produced during traversal.
+ *
+ * The format is:
  *   ```json
  *   {
  *     "balances": ["0xdead...beef", "0xcafe...babe"],
- *     "allowances": ["0xdead...beef"]
+ *     "allowances": ["0xdead...beef"],
+ *     "nestedBalances": ["0xouterKey"],
+ *     "nestedBalances[0xouterKey]": ["0xinnerKeyA", "0xinnerKeyB"]
  *   }
  *   ```
+ *
+ * For example, given:
+ *   `mapping(address => mapping(address => uint256)) nestedBalances;`
+ *
+ * SlotProbe first expands `"nestedBalances"` using the outer keys, then
+ * expands `"nestedBalances[0xouterKey]"` using the inner keys.
  *
  * Full mapping enumeration (via event log scanning or transaction tracing)
  * is planned for v2.
@@ -26,9 +38,13 @@ import  { readFileSync,existsSync } from 'node:fs'
 /**
  * Shape of a mapping keys JSON file.
  *
- * Each top-level key is a storage variable name (must match the variable
- * name in the contract's storage layout). The value is an array of
- * mapping key strings to expand during snapshot capture.
+ * Each JSON key is either:
+ *   - a top-level storage variable name, or
+ *   - a fully expanded mapping path such as `"balances[0xabc...]"` for a
+ *     nested mapping value.
+ *
+ * The value is an array of mapping key strings to expand during snapshot
+ * capture.
  *
  * Key format depends on the mapping's key type:
  *   - address keys: `"0x<40 hex chars>"`
@@ -53,7 +69,10 @@ export interface MappingKeysFile {
  *
  * @example
  *   const keys = loadMappingKeys('./mapping-keys.json')
- *   // { balances: ['0xdead...beef'], allowances: ['0xcafe...babe'] }
+ *   // {
+ *   //   balances: ['0xdead...beef'],
+ *   //   'balances[0xdead...beef]': ['0xcafe...babe']
+ *   // }
  */
 export function loadMappingKeys(filePath: string): MappingKeysFile {
   if (!existsSync(filePath)) {
@@ -90,6 +109,7 @@ export function loadMappingKeys(filePath: string): MappingKeysFile {
  * @example
  *   const result = validateMappingKeys({
  *     balances: ['0xdead...beef'],
+ *     'balances[0xdead...beef]': ['0xcafe...babe'],
  *     flags: ['true', 'false'],
  *     scores: ['42', '100'],
  *   })
