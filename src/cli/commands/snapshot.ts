@@ -40,7 +40,18 @@ import type { MappingKeysFile } from '../../core/snapshot/mapping-keys.js'
  * @throws Error if the chain name is not recognised
  */
 function validateChain(chain: string): SupportedChain {
-  const supported: SupportedChain[] = ['mainnet', 'arbitrum', 'base', 'optimism', 'polygon']
+  const supported: SupportedChain[] = [
+    'mainnet',
+    'sepolia',
+    'arbitrum',
+    'arbitrumSepolia',
+    'base',
+    'baseSepolia',
+    'optimism',
+    'optimismSepolia',
+    'polygon',
+    'polygonAmoy',
+  ]
   if (!supported.includes(chain as SupportedChain)) {
     throw new Error(
       `Unsupported chain "${chain}". Supported chains: ${supported.join(', ')}`
@@ -69,7 +80,10 @@ export const snapshotCommand = new Command('snapshot')
   .description('Capture a semantic storage snapshot of a deployed contract')
   .argument('<address>', 'Contract address (0x...)')
   .requiredOption('--artifact <path>', 'Path to Foundry or Hardhat build artifact JSON')
-  .option('--chain <chain>', 'Target chain (mainnet, arbitrum, optimism, polygon, base)')
+  .option(
+    '--chain <chain>',
+    'Target chain (mainnet, sepolia, arbitrum, arbitrumSepolia, optimism, optimismSepolia, polygon, polygonAmoy, base, baseSepolia)'
+  )
   .option('--block <number>', 'Block number for snapshot (defaults to latest)')
   .option('--only <vars>', 'Comma-separated list of variable names to snapshot')
   .option('--mapping-keys <path>', 'Path to mapping keys JSON file')

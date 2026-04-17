@@ -12,7 +12,7 @@
  * - Optimism (Layer 2)
  * - Polygon (Layer 2)
  * - Base (Layer 2)
- * - Testnets: Sepolia, Arbitrum Sepolia, Optimism Sepolia
+ * - Testnets: Sepolia, Arbitrum Sepolia, Optimism Sepolia, Base Sepolia, Polygon Amoy
  */
 
 import { describe, it, expect } from 'vitest'
@@ -52,6 +52,8 @@ describe('chains', () => {
         'sepolia',
         'arbitrumSepolia',
         'optimismSepolia',
+        'baseSepolia',
+        'polygonAmoy',
       ]
       expect(Object.keys(CHAINS)).toEqual(expectedChains)
     })
@@ -60,6 +62,8 @@ describe('chains', () => {
       expect(CHAINS['sepolia']!.testnet).toBe(true)
       expect(CHAINS['arbitrumSepolia']!.testnet).toBe(true)
       expect(CHAINS['optimismSepolia']!.testnet).toBe(true)
+      expect(CHAINS['baseSepolia']!.testnet).toBe(true)
+      expect(CHAINS['polygonAmoy']!.testnet).toBe(true)
       expect(CHAINS['mainnet']!.testnet).toBe(false)
     })
 
@@ -69,6 +73,8 @@ describe('chains', () => {
       expect(CHAINS['optimism']!.id).toBe(10)
       expect(CHAINS['polygon']!.id).toBe(137)
       expect(CHAINS['base']!.id).toBe(8453)
+      expect(CHAINS['baseSepolia']!.id).toBe(84532)
+      expect(CHAINS['polygonAmoy']!.id).toBe(80002)
     })
   })
 

@@ -36,8 +36,9 @@ export interface ChainInfo {
  * Registry of all supported chains with their metadata.
  *
  * Includes both mainnets (Ethereum, Arbitrum, Optimism, Polygon, Base)
- * and their Sepolia testnet counterparts. The record keys match the
- * chain name strings used in CLI flags and config files.
+ * and common testnet counterparts (Sepolia, Arbitrum Sepolia, Optimism
+ * Sepolia, Base Sepolia, Polygon Amoy). The record keys match the chain
+ * name strings used in CLI flags and config files.
  */
 export const CHAINS: Record<string, ChainInfo> = {
   mainnet: {
@@ -85,7 +86,19 @@ export const CHAINS: Record<string, ChainInfo> = {
   optimismSepolia: {
     name: 'Optimism Sepolia',
     id: 11155420,
-    explorer: 'https://sepolia-optimism.etherscan.io',
+    explorer: 'https://optimism-sepolia.blockscout.com',
+    testnet: true,
+  },
+  baseSepolia: {
+    name: 'Base Sepolia',
+    id: 84532,
+    explorer: 'https://sepolia.basescan.org',
+    testnet: true,
+  },
+  polygonAmoy: {
+    name: 'Polygon Amoy',
+    id: 80002,
+    explorer: 'https://amoy.polygonscan.com',
     testnet: true,
   },
 }

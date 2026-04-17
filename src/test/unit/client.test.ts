@@ -14,7 +14,18 @@
 
 import { describe, it, expect } from 'vitest'
 import { getClient, getRpcUrl, CHAIN_CONFIG, type SupportedChain } from '../../rpc/client.js'
-import { mainnet, arbitrum, base, optimism, polygon } from 'viem/chains'
+import {
+  mainnet,
+  sepolia,
+  arbitrum,
+  arbitrumSepolia,
+  base,
+  baseSepolia,
+  optimism,
+  optimismSepolia,
+  polygon,
+  polygonAmoy,
+} from 'viem/chains'
 
 describe('client', () => {
   /**
@@ -38,7 +49,18 @@ describe('client', () => {
     })
 
     it('should create a client for each supported chain', () => {
-      const chains: SupportedChain[] = ['mainnet', 'arbitrum', 'base', 'optimism', 'polygon']
+      const chains: SupportedChain[] = [
+        'mainnet',
+        'sepolia',
+        'arbitrum',
+        'arbitrumSepolia',
+        'base',
+        'baseSepolia',
+        'optimism',
+        'optimismSepolia',
+        'polygon',
+        'polygonAmoy',
+      ]
       for (const chain of chains) {
         const client = getClient(chain)
         expect(client).toBeDefined()
@@ -115,10 +137,15 @@ describe('client', () => {
 
     it('should export chain config for all supported chains', () => {
       expect(CHAIN_CONFIG.mainnet).toBe(mainnet)
+      expect(CHAIN_CONFIG.sepolia).toBe(sepolia)
       expect(CHAIN_CONFIG.arbitrum).toBe(arbitrum)
+      expect(CHAIN_CONFIG.arbitrumSepolia).toBe(arbitrumSepolia)
       expect(CHAIN_CONFIG.base).toBe(base)
+      expect(CHAIN_CONFIG.baseSepolia).toBe(baseSepolia)
       expect(CHAIN_CONFIG.optimism).toBe(optimism)
+      expect(CHAIN_CONFIG.optimismSepolia).toBe(optimismSepolia)
       expect(CHAIN_CONFIG.polygon).toBe(polygon)
+      expect(CHAIN_CONFIG.polygonAmoy).toBe(polygonAmoy)
     })
   })
 
@@ -131,7 +158,18 @@ describe('client', () => {
    */
   describe('SupportedChain type', () => {
     it('should accept valid chain names', () => {
-      const validChains: SupportedChain[] = ['mainnet', 'arbitrum', 'base', 'optimism', 'polygon']
+      const validChains: SupportedChain[] = [
+        'mainnet',
+        'sepolia',
+        'arbitrum',
+        'arbitrumSepolia',
+        'base',
+        'baseSepolia',
+        'optimism',
+        'optimismSepolia',
+        'polygon',
+        'polygonAmoy',
+      ]
       for (const chain of validChains) {
         expect(() => getClient(chain)).not.toThrow()
       }

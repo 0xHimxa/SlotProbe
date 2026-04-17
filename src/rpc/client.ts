@@ -6,23 +6,57 @@
  * `eth_getStorageAt` JSON-RPC method. Each client is configured with
  * multicall batching to reduce the number of HTTP round-trips.
  *
- * Supported chains: Ethereum mainnet, Arbitrum, Base, Optimism, Polygon.
- * Add custom chains by extending the CHAINS constant.
+ * Supported chains: Ethereum mainnet and Sepolia, Arbitrum and Arbitrum
+ * Sepolia, Base and Base Sepolia, Optimism and Optimism Sepolia, Polygon
+ * and Polygon Amoy. Add custom chains by extending the CHAINS constant.
  *
  * @module rpc/client
  */
 
 import { createPublicClient, http, type Chain } from 'viem'
-import { mainnet, arbitrum, base, optimism, polygon } from 'viem/chains'
+import {
+  mainnet,
+  sepolia,
+  arbitrum,
+  arbitrumSepolia,
+  base,
+  baseSepolia,
+  optimism,
+  optimismSepolia,
+  polygon,
+  polygonAmoy,
+} from 'viem/chains'
+
+export type SupportedChain =
+  | 'mainnet'
+  | 'sepolia'
+  | 'arbitrum'
+  | 'arbitrumSepolia'
+  | 'base'
+  | 'baseSepolia'
+  | 'optimism'
+  | 'optimismSepolia'
+  | 'polygon'
+  | 'polygonAmoy'
 
 /** Supported chains for snapshot operations */
-const CHAINS = { mainnet, arbitrum, base, optimism, polygon } as const
-export type SupportedChain = keyof typeof CHAINS
+const CHAINS: Record<SupportedChain, Chain> = {
+  mainnet,
+  sepolia,
+  arbitrum,
+  arbitrumSepolia,
+  base,
+  baseSepolia,
+  optimism,
+  optimismSepolia,
+  polygon,
+  polygonAmoy,
+}
 const DEFAULT_MULTICALL_BATCH_SIZE = 400
 const DEFAULT_MULTICALL_WAIT_MS = 2000
 
 /** Chain configuration map - add custom chains here */
-export const CHAIN_CONFIG: Record<SupportedChain, Chain> = CHAINS
+export const CHAIN_CONFIG = CHAINS
 
 /**
  * Creates a viem public client for the specified chain.
