@@ -232,7 +232,7 @@ function readMigrationScript(path: string): string {
  * Builds the smallest viable snapshot scope needed to compare the fork
  * against the expected before/after snapshots.
  */
-function deriveCaptureScope(
+export function deriveCaptureScope(
   layout: StorageLayout,
   beforeSnapshot: Snapshot,
   afterSnapshot: Snapshot,
@@ -243,22 +243,7 @@ function deriveCaptureScope(
   for (const entry of [...beforeSnapshot.variables, ...afterSnapshot.variables]) {
     const topLevelName = getTopLevelVariableName(entry.name)
     variableNames.add(topLevelName)
-
-    const variable = layout.variables.find((candidate) => candidate.name === topLevelName)
-    const typeInfo = variable ? layout.types[variable.type] : undefined
-    if (typeInfo?.encoding !== 'mapping') {
-      continue
-    }
-
-    const key = getTopLevelMappingKey(entry.name, topLevelName)
-    if (!key) {
-      continue
-    }
-
-    if (!mappingKeys.has(topLevelName)) {
-      mappingKeys.set(topLevelName, new Set())
-    }
-    mappingKeys.get(topLevelName)!.add(key)
+    collectMappingKeysForPath(layout, entry.name, mappingKeys)
   }
 
   return {
@@ -279,26 +264,138 @@ function getTopLevelVariableName(path: string): string {
   return endIndex === undefined ? path : path.slice(0, endIndex)
 }
 
-function getTopLevelMappingKey(path: string, variableName: string): string | undefined {
-  const prefix = `${variableName}[`
-  if (!path.startsWith(prefix)) {
+function collectMappingKeysForPath(
+  layout: StorageLayout,
+  path: string,
+  mappingKeys: Map<string, Set<string>>
+): void {
+  const topLevelName = getTopLevelVariableName(path)
+  const variable = layout.variables.find((candidate) => candidate.name === topLevelName)
+
+  if (!variable) {
+    return
+  }
+
+  let cursor = topLevelName.length
+  let currentPath = topLevelName
+  let currentTypeId = variable.type
+
+  while (cursor < path.length) {
+    const typeInfo = layout.types[currentTypeId]
+    if (!typeInfo) {
+      return
+    }
+
+    if (typeInfo.encoding === 'mapping') {
+      const segment = readBracketSegment(path, cursor)
+      if (!segment) {
+        return
+      }
+
+      addMappingKey(mappingKeys, currentPath, segment.content)
+      currentPath += `[${segment.content}]`
+      cursor = segment.nextIndex
+
+      if (!typeInfo.value) {
+        return
+      }
+
+      currentTypeId = typeInfo.value
+      continue
+    }
+
+    if (typeInfo.encoding === 'dynamic_array' || isFixedLengthArrayType(typeInfo)) {
+      const segment = readBracketSegment(path, cursor)
+      if (!segment) {
+        if (path.startsWith('.length', cursor)) {
+          return
+        }
+        return
+      }
+
+      currentPath += `[${segment.content}]`
+      cursor = segment.nextIndex
+
+      if (!typeInfo.base) {
+        return
+      }
+
+      currentTypeId = typeInfo.base
+      continue
+    }
+
+    if (path[cursor] !== '.') {
+      return
+    }
+
+    const nextDotIndex = path.indexOf('.', cursor + 1)
+    const nextBracketIndex = path.indexOf('[', cursor + 1)
+    const nextIndexCandidates = [nextDotIndex, nextBracketIndex].filter((index) => index !== -1)
+    const endIndex = nextIndexCandidates.length > 0 ? Math.min(...nextIndexCandidates) : path.length
+    const memberName = path.slice(cursor + 1, endIndex)
+
+    const member = typeInfo.members?.find((candidate) => candidate.name === memberName)
+    if (!member) {
+      return
+    }
+
+    currentPath += `.${memberName}`
+    cursor = endIndex
+    currentTypeId = member.type
+  }
+}
+
+function addMappingKey(
+  mappingKeys: Map<string, Set<string>>,
+  mappingPath: string,
+  key: string
+): void {
+  if (!mappingKeys.has(mappingPath)) {
+    mappingKeys.set(mappingPath, new Set())
+  }
+
+  mappingKeys.get(mappingPath)!.add(key)
+}
+
+function readBracketSegment(
+  path: string,
+  startIndex: number
+): { content: string; nextIndex: number } | undefined {
+  if (path[startIndex] !== '[') {
     return undefined
   }
 
   let depth = 0
-  for (let index = variableName.length; index < path.length; index += 1) {
+  for (let index = startIndex; index < path.length; index += 1) {
     const char = path[index]
+
     if (char === '[') {
       depth += 1
-    } else if (char === ']') {
-      depth -= 1
-      if (depth === 0) {
-        return path.slice(variableName.length + 1, index)
+      continue
+    }
+
+    if (char !== ']') {
+      continue
+    }
+
+    depth -= 1
+    if (depth === 0) {
+      return {
+        content: path.slice(startIndex + 1, index),
+        nextIndex: index + 1,
       }
     }
   }
 
   return undefined
+}
+
+function isFixedLengthArrayType(typeInfo: StorageLayout['types'][string]): boolean {
+  return (
+    typeInfo.encoding === 'inplace' &&
+    typeof typeInfo.base === 'string' &&
+    !typeInfo.members?.length
+  )
 }
 
 /**

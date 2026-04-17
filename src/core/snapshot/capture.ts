@@ -940,7 +940,7 @@ async function captureMappingEntries(
   input: CaptureVariableInput,
   typeInfo: TypeInfo
 ): Promise<SnapshotEntry[]> {
-  const keys = input.options.mappingKeys?.[input.variable.name] ?? []
+  const keys = input.options.mappingKeys?.[input.path] ?? input.options.mappingKeys?.[input.variable.name] ?? []
 
   if (!typeInfo.value) {
     return [createPlaceholderEntry(input, 'mapping value type is missing from storage layout')]
@@ -1295,7 +1295,7 @@ function estimateVariableReadSlots(
 
     const valueType = getTypeInfoOrThrow(input.layout, typeInfo.value)
     const valueVariable = typeInfoToVariable(typeInfo.value, valueType)
-    const keys = input.options.mappingKeys?.[input.variable.name] ?? []
+    const keys = input.options.mappingKeys?.[input.path] ?? input.options.mappingKeys?.[input.variable.name] ?? []
 
     for (const key of keys) {
       const entrySlot = calculateMappingEntrySlot(key, input.baseSlot, typeInfo.key)
