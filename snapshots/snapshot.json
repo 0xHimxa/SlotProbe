@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "1",
+  "address": "0x1897Ff2Be0146D0c46f609706a4fB55c8205580d",
+  "chain": "sepolia",
+  "blockNumber": "10680475",
+  "capturedAt": 1776465136046,
+  "contractName": "first",
+  "variables": [
+    {
+      "name": "version",
+      "solidityType": "uint256",
+      "slot": "0",
+      "offset": 0,
+      "rawValue": "0x0000000000000000000000000000000000000000000000000000000000000002",
+      "decodedValue": "2"
+    },
+    {
+      "name": "lessImportantValue",
+      "solidityType": "uint256",
+      "slot": "1",
+      "offset": 0,
+      "rawValue": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "decodedValue": "0"
+    },
+    {
+      "name": "owner",
+      "solidityType": "address",
+      "slot": "2",
+      "offset": 0,
+      "rawValue": "0x000000000000000000000000a85926f9598aa43a2d8f24246b5e7886c4a5feec",
+      "decodedValue": "0xa85926f9598aa43a2d8f24246b5e7886c4a5feec"
+    },
+    {
+      "name": "newBigValue",
+      "solidityType": "uint256",
+      "slot": "3",
+      "offset": 0,
+      "rawValue": "0x00000000000000000000000000000000000000000000000000000000000f423f",
+      "decodedValue": "999999"
+    },
+    {
+      "name": "paused",
+      "solidityType": "bool",
+      "slot": "4",
+      "offset": 0,
+      "rawValue": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "decodedValue": false
+    },
+    {
+      "name": "counter",
+      "solidityType": "uint8",
+      "slot": "4",
+      "offset": 1,
+      "rawValue": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "decodedValue": "0"
+    },
+    {
+      "name": "smallNumber",
+      "solidityType": "uint16",
+      "slot": "4",
+      "offset": 2,
+      "rawValue": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "decodedValue": "0"
+    },
+    {
+      "name": "extraData",
+      "solidityType": "uint256",
+      "slot": "5",
+      "offset": 0,
+      "rawValue": "0x00000000000000000000000000000000000000000000000000000000075bcd15",
+      "decodedValue": "123456789"
+    },
+    {
+      "name": "name",
+      "solidityType": "string",
+      "slot": "6",
+      "offset": 0,
+      "rawValue": "0x0000000000000000000000000000000000000000000000000000000000000047",
+      "decodedValue": "Storage Version 2 - Modified Layout"
+    },
+    {
+      "name": "balances[0xa85926f9598aa43a2d8f24246b5e7886c4a5feec]",
+      "solidityType": "uint256",
+      "slot": "37773036227577064085812277379800415108278779663063097399482196874729181596791",
+      "offset": 0,
+      "rawValue": "0x00000000000000000000000000000000000000000000000000000000000003e8",
+      "decodedValue": "1000"
+    }
+  ]
+}
