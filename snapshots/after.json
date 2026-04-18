@@ -368,7 +368,7 @@
     },
     {
       "name": "initialCanonicalPriceE6",
-      "solidityType": "uint256",
+      "solidityType": "uint16",
       "slot": "37",
       "offset": 0,
       "rawValue": "0x000000000000000000000000000000000000000000000000000000000007a120",

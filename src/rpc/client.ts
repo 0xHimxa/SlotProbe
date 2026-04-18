@@ -58,6 +58,19 @@ const DEFAULT_MULTICALL_WAIT_MS = 2000
 /** Chain configuration map - add custom chains here */
 export const CHAIN_CONFIG = CHAINS
 
+function resolveRpcUrl(chain: SupportedChain, rpcUrl?: string): string {
+  if (rpcUrl) {
+    return rpcUrl
+  }
+
+  const defaultRpcUrl = CHAINS[chain].rpcUrls.default.http[0]
+  if (!defaultRpcUrl) {
+    throw new Error(`No default RPC URL configured for chain "${chain}"`)
+  }
+
+  return defaultRpcUrl
+}
+
 /**
  * Creates a viem public client for the specified chain.
  *
@@ -76,7 +89,7 @@ export const CHAIN_CONFIG = CHAINS
  */
 export function getClient(chain: SupportedChain, rpcUrl?: string) {
   const chainConfig = CHAINS[chain]
-  const transport = http(rpcUrl ?? chainConfig.rpcUrls.default.http[0])
+  const transport = http(resolveRpcUrl(chain, rpcUrl))
   
   return createPublicClient({
     chain: chainConfig,
@@ -92,5 +105,5 @@ export function getClient(chain: SupportedChain, rpcUrl?: string) {
 
 /** Get the RPC URL that will be used (for display/debugging) */
 export function getRpcUrl(chain: SupportedChain, rpcUrl?: string): string {
-  return rpcUrl ?? CHAINS[chain].rpcUrls.default.http[0]
+  return resolveRpcUrl(chain, rpcUrl)
 }

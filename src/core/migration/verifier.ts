@@ -101,6 +101,8 @@ export async function verifyMigration(options: VerifyOptions): Promise<VerifyRes
   let anvil: ReturnType<typeof spawn> | null = null
 
   try {
+    let startupLogs = ''
+
     anvil = spawn('anvil', [
       '--fork-url', options.rpcUrl,
       '--fork-block-number', beforeSnapshot.blockNumber,
@@ -109,30 +111,45 @@ export async function verifyMigration(options: VerifyOptions): Promise<VerifyRes
       stdio: 'pipe',
     })
 
+    anvil.stdout?.on('data', (chunk) => {
+      startupLogs += chunk.toString()
+    })
+    anvil.stderr?.on('data', (chunk) => {
+      startupLogs += chunk.toString()
+    })
+
     const started = await new Promise<boolean>((resolve) => {
+      let settled = false
+      const finish = (value: boolean) => {
+        if (!settled) {
+          settled = true
+          resolve(value)
+        }
+      }
+
       anvil!.on('error', (err) => {
         if (err.message.includes('ENOENT')) {
           console.error('Anvil not found. Make sure Foundry is installed.')
         }
-        resolve(false)
+        finish(false)
       })
-      anvil!.stderr?.on('data', (chunk) => {
-        const line = chunk.toString()
-        if (line.toLowerCase().includes('listening on')) {
-          resolve(true)
-        }
+      anvil!.on('exit', () => {
+        finish(false)
       })
-      anvil!.stdout?.on('data', (chunk) => {
-        const line = chunk.toString()
-        if (line.toLowerCase().includes('listening on')) {
-          resolve(true)
-        }
-      })
-      setTimeout(() => resolve(true), 3000)
+
+      waitForRpcReady(anvilUrl, anvil!)
+        .then(() => finish(true))
+        .catch(() => finish(false))
     })
 
     if (!started) {
-      return { success: false, message: 'Failed to start Anvil fork' }
+      const details = startupLogs.trim()
+      return {
+        success: false,
+        message: details
+          ? `Failed to start Anvil fork.\n${details}`
+          : 'Failed to start Anvil fork.',
+      }
     }
 
     console.log('Capturing pre-migration fork snapshot...')
@@ -216,6 +233,45 @@ export async function verifyMigration(options: VerifyOptions): Promise<VerifyRes
       console.log('Anvil stopped')
     }
   }
+}
+
+async function waitForRpcReady(url: string, process: ReturnType<typeof spawn>): Promise<void> {
+  const startedAt = Date.now()
+  const timeoutMs = 20000
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (process.exitCode !== null) {
+      throw new Error(`Anvil exited before becoming ready (exit code ${process.exitCode}).`)
+    }
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'eth_getBlockByNumber',
+          params: ['latest', false],
+        }),
+      })
+
+      if (response.ok) {
+        const payload = await response.json() as { result?: unknown; error?: unknown }
+        if (payload.result) {
+          return
+        }
+      }
+    } catch {
+      // Anvil is still booting, keep polling.
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+
+  throw new Error(`Timed out waiting for Anvil RPC at ${url}`)
 }
 
 /**
