@@ -4,6 +4,17 @@
   "description": "Smart contract state diffing and safe migration tooling for EVM protocols",
   "main": "./dist/core/index.js",
   "types": "./dist/core/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli/index.d.ts",
+      "import": "./dist/cli/index.js"
+    },
+    "./package.json": "./package.json"
+  },
   "bin": {
     "slotprobe": "./dist/cli/index.js"
   },
@@ -12,8 +23,10 @@
     "src/core/migration/templates"
   ],
   "scripts": {
-    "build": "tsup src/core/index.ts src/cli/index.ts --format esm --dts --outDir dist",
+    "build": "tsup src/core/index.ts src/cli/index.ts --format esm --dts --outDir dist --clean",
     "dev": "tsx src/cli/index.ts",
+    "prepack": "npm run build",
+    "publish:check": "npm run test:run && npm run build && npm pack --dry-run",
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage"
@@ -35,7 +48,14 @@
   ],
   "author": "0xHimxa",
   "license": "MIT",
+  "sideEffects": false,
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "bugs": {
     "url": "https://github.com/0xHimxa/SlotProbe/issues"
   },
