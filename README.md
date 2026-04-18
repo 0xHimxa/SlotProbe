@@ -108,8 +108,8 @@ SlotProbe exits with code `1` if any collision is detected — making it CI-frie
 slotprobe generate-migration \
   ./snapshots/before.json \
   ./snapshots/after.json \
-  --framework foundry \
-  --output ./script/Migrate.s.sol
+  --format foundry \
+  --out ./script/Migrate.s.sol
 ```
 
 Add `--verify` to automatically run the script on an Anvil fork and confirm the resulting state matches your expected snapshot.
@@ -123,6 +123,7 @@ slotprobe snapshot <address>                Capture contract storage to a JSON s
 slotprobe diff <before> <after>             Semantic diff of two snapshots
 slotprobe check-collision <old> <new>       Detect byte-range slot collisions between two layouts
 slotprobe generate-migration <bef> <aft>    Generate a Foundry or Hardhat migration script
+slotprobe init                              Create a starter slotprobe.config.json
 ```
 
 ### Global Flags
@@ -147,7 +148,8 @@ slotprobe generate-migration <bef> <aft>    Generate a Foundry or Hardhat migrat
 
 | Flag | Description |
 |------|-------------|
-| `--framework <name>` | Output framework: `foundry` (default) or `hardhat` |
+| `--format <name>` | Output framework: `foundry` (default) or `hardhat` |
+| `--out <path>` | Output path for the generated script |
 | `--verify` | Run the generated script on an Anvil fork and verify the result |
 
 ---

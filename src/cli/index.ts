@@ -23,11 +23,16 @@
  */
 
 import { Command } from 'commander'
+import { createRequire } from 'module'
 import { snapshotCommand } from './commands/snapshot.js'
 import { diffCommand } from './commands/diff.js'
 import { checkCollisionCommand } from './commands/check-collision.js'
 import { generateMigrationCommand } from './commands/generate-migration.js'
 import { initCommand } from './commands/init.js'
+
+const _require = createRequire(import.meta.url)
+// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+const { version } = _require('../../package.json') as { version: string }
 
 /**
  * Root Commander program instance.
@@ -38,7 +43,7 @@ const program = new Command()
 program
   .name('slotprobe')
   .description('Smart contract state diffing and safe migration tooling for EVM protocols')
-  .version('1.0.0')
+  .version(version)
 
 /** Register all subcommands */
 program.addCommand(snapshotCommand)

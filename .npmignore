@@ -1,0 +1,36 @@
+# Source — not needed at runtime (dist/ ships instead)
+src/
+
+# Test infrastructure
+coverage/
+vitest.config.ts
+
+# Foundry build artifacts
+out/
+
+# Local snapshot output
+snapshots/
+
+# Local config (users create their own)
+slotprobe.config.json
+
+# Dev scratch files in root
+/t2.json
+/test.json
+
+# Images / media
+image.png
+
+# npm pack output
+*.tgz
+
+# Temp test directories
+.tmp-test/
+
+# TypeScript build config — not needed after build
+tsconfig.json
+
+# Git / GitHub
+.github/
+.git/
+.gitignore

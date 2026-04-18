@@ -15,15 +15,14 @@
     },
     "./package.json": "./package.json"
   },
-  "bin": {
-    "slotprobe": "./dist/cli/index.js"
-  },
+  "bin": "./dist/cli/index.js",
   "files": [
     "dist",
     "src/core/migration/templates"
   ],
   "scripts": {
     "build": "tsup src/core/index.ts src/cli/index.ts --format esm --dts --outDir dist --clean",
+    "postbuild": "chmod +x ./dist/cli/index.js",
     "dev": "tsx src/cli/index.ts",
     "prepack": "npm run build",
     "publish:check": "npm run test:run && npm run build && npm pack --dry-run",
@@ -46,7 +45,10 @@
     "migration",
     "web3"
   ],
-  "author": "0xHimxa",
+  "author": {
+    "name": "0xHimxa",
+    "url": "https://github.com/0xHimxa"
+  },
   "license": "MIT",
   "sideEffects": false,
   "type": "module",
@@ -72,7 +74,6 @@
     "chalk": "^5.6.2",
     "cli-table3": "^0.6.5",
     "commander": "^14.0.3",
-    "ethers": "^6.16.0",
     "handlebars": "^4.7.9",
     "ora": "^9.3.0",
     "p-limit": "^7.3.0",

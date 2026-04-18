@@ -107,8 +107,8 @@ describe('config helpers', () => {
     expect(resolveOutputPath('./nested/snapshot.json', './snapshots')).toBe('./nested/snapshot.json')
   })
 
-  it('throws a helpful error when no config file exists', () => {
-    expect(() => loadConfig(tempDir)).toThrow(/Run "slotprobe init" to create slotprobe\.config\.json/)
+  it('falls back to the default config when no config file exists', () => {
+    expect(loadConfig(tempDir)).toEqual(DEFAULT_CONFIG)
   })
 
   it('writes a starter config file during init', () => {

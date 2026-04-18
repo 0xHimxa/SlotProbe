@@ -4,7 +4,7 @@
  * Discovers, loads, and merges SlotProbe configuration files. Searches
  * the current working directory for `.SlotProberc.json`, `.slotprobe.json`,
  * or `slotprobe.config.json` and validates the contents with the Zod schema.
- * Missing config files fall back silently to built-in defaults.
+ * Missing config files fall back to built-in defaults.
  *
  * @module config/loader
  */
@@ -85,10 +85,8 @@ export function loadConfig(searchDir?: string): Config {
     throw new Error(lastError);
   }
 
-  throw new Error(
-    `No configuration file found in "${searchPath}". Expected one of: ${CONFIG_FILES.join(", ")}. ` +
-      `Run "slotprobe init" to create ${DEFAULT_CONFIG_FILENAME}.`,
-  );
+  configCache.set(searchPath, DEFAULT_CONFIG);
+  return DEFAULT_CONFIG;
 }
 /**
  * Loads config from a specific file path.
